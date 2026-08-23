@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064e3b" />
+      <stop offset="50%" stop-color="#047857" />
+      <stop offset="100%" stop-color="#022c22" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="100%" stop-color="#ca8a04" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)" />
+
+  <!-- Decorative Pattern -->
+  <g opacity="0.08" stroke="#ffffff" stroke-width="1.5" fill="none">
+    <circle cx="1100" cy="100" r="300" />
+    <circle cx="1100" cy="100" r="200" />
+    <circle cx="1100" cy="100" r="100" />
+    <circle cx="100" cy="550" r="250" />
+    <circle cx="100" cy="550" r="150" />
+  </g>
+
+  <!-- Central Card -->
+  <rect x="80" y="70" width="1040" height="490" rx="28" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.2" filter="url(#shadow)" />
+
+  <!-- Top Badge -->
+  <rect x="130" y="115" width="370" height="46" rx="23" fill="#10b981" fill-opacity="0.2" stroke="#34d399" stroke-width="1.5" />
+  <circle cx="155" cy="138" r="8" fill="#34d399" />
+  <text x="175" y="144" fill="#6ee7b7" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="bold" letter-spacing="1">SISTEM PRESENSI RESMI GTK</text>
+
+  <!-- Main Headline -->
+  <text x="130" y="240" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="64" font-weight="900" letter-spacing="-1">SIMPRESENSI MADRASAH</text>
+
+  <!-- Subtitle -->
+  <text x="130" y="295" fill="url(#gold)" font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="bold">
+    Sistem Presensi Fingerprint &amp; Rekapitulasi Laporan Kemenag
+  </text>
+
+  <!-- Feature List Pills -->
+  <g transform="translate(130, 345)">
+    <!-- Pill 1 -->
+    <rect x="0" y="0" width="280" height="52" rx="14" fill="#042f2e" fill-opacity="0.7" stroke="#059669" stroke-width="1.5" />
+    <text x="24" y="32" fill="#e2e8f0" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="600">✓ Fingerprint .DAT / CSV / Excel</text>
+
+    <!-- Pill 2 -->
+    <rect x="295" y="0" width="280" height="52" rx="14" fill="#042f2e" fill-opacity="0.7" stroke="#059669" stroke-width="1.5" />
+    <text x="319" y="32" fill="#e2e8f0" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="600">✓ Rekap Matriks 1-31 &amp; SPTJM</text>
+
+    <!-- Pill 3 -->
+    <rect x="590" y="0" width="280" height="52" rx="14" fill="#042f2e" fill-opacity="0.7" stroke="#059669" stroke-width="1.5" />
+    <text x="614" y="32" fill="#e2e8f0" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="600">✓ Sinkron Multi-Perangkat</text>
+  </g>
+
+  <!-- Bottom Accent / Watermark -->
+  <line x1="130" y1="455" x2="1010" y2="455" stroke="#ffffff" stroke-opacity="0.15" stroke-width="1" />
+  
+  <text x="130" y="495" fill="#a7f3d0" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="bold">
+    KEMENTERIAN AGAMA REPUBLIK INDONESIA
+  </text>
+  <text x="1010" y="495" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="16" text-anchor="end">
+    simpresensi.madrasah.id
+  </text>
+</svg>

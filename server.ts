@@ -1,0 +1,870 @@
+import express from "express";
+import path from "path";
+import fs from "fs";
+import { createServer as createViteServer } from "vite";
+import dotenv from "dotenv";
+import { GoogleGenAI } from "@google/genai";
+import JSZip from "jszip";
+import { 
+  generateMySQLDump, 
+  generatePHPBackend, 
+  generateHtaccess, 
+  generateReadme, 
+  generatePleskHtmlGuide 
+} from "./src/utils/pleskPackageGenerator";
+
+dotenv.config();
+
+let aiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is required");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
+
+async function startServer() {
+  const app = express();
+  const PORT = 3000;
+
+  app.use(express.json({ limit: "100mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "100mb" }));
+
+  // Centralized Database Storage Path
+  const DATA_DIR = path.join(process.cwd(), "data");
+  const DB_FILE = path.join(DATA_DIR, "simpresensi_db.json");
+
+  // Ensure data directory exists
+  if (!fs.existsSync(DATA_DIR)) {
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    } catch (e) {
+      console.error("Failed to create data dir:", e);
+    }
+  }
+
+  // Helper to load stored data
+  const loadDatabase = () => {
+    try {
+      if (fs.existsSync(DB_FILE)) {
+        const raw = fs.readFileSync(DB_FILE, "utf-8");
+        return JSON.parse(raw);
+      }
+    } catch (err) {
+      console.error("Error reading database file:", err);
+    }
+    return null;
+  };
+
+  // Helper to save data safely
+  const CUSTOM_OG_FILE = path.join(DATA_DIR, "custom_og_image.jpg");
+  const CUSTOM_FAVICON_FILE = path.join(DATA_DIR, "custom_favicon.png");
+
+  const persistMediaFiles = (profile: any) => {
+    if (!profile) return;
+    try {
+      if (profile.ogImageUrl && typeof profile.ogImageUrl === "string" && profile.ogImageUrl.startsWith("data:image/")) {
+        const matches = profile.ogImageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const buffer = Buffer.from(matches[2], "base64");
+          try { fs.writeFileSync(CUSTOM_OG_FILE, buffer); } catch(e){}
+          const pubJpg = path.join(process.cwd(), "public", "og-image.jpg");
+          const distJpg = path.join(process.cwd(), "dist", "og-image.jpg");
+          const pubPng = path.join(process.cwd(), "public", "og-image.png");
+          const distPng = path.join(process.cwd(), "dist", "og-image.png");
+          try { fs.writeFileSync(pubJpg, buffer); } catch(e){}
+          try { if (fs.existsSync(path.join(process.cwd(), "dist"))) fs.writeFileSync(distJpg, buffer); } catch(e){}
+          try { fs.writeFileSync(pubPng, buffer); } catch(e){}
+          try { if (fs.existsSync(path.join(process.cwd(), "dist"))) fs.writeFileSync(distPng, buffer); } catch(e){}
+        }
+      }
+      if (profile.faviconUrl && typeof profile.faviconUrl === "string" && profile.faviconUrl.startsWith("data:image/")) {
+        const matches = profile.faviconUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const buffer = Buffer.from(matches[2], "base64");
+          try { fs.writeFileSync(CUSTOM_FAVICON_FILE, buffer); } catch(e){}
+          const pubFav = path.join(process.cwd(), "public", "favicon.png");
+          const distFav = path.join(process.cwd(), "dist", "favicon.png");
+          const pubIco = path.join(process.cwd(), "public", "favicon.ico");
+          const distIco = path.join(process.cwd(), "dist", "favicon.ico");
+          try { fs.writeFileSync(pubFav, buffer); } catch(e){}
+          try { if (fs.existsSync(path.join(process.cwd(), "dist"))) fs.writeFileSync(distFav, buffer); } catch(e){}
+          try { fs.writeFileSync(pubIco, buffer); } catch(e){}
+          try { if (fs.existsSync(path.join(process.cwd(), "dist"))) fs.writeFileSync(distIco, buffer); } catch(e){}
+        }
+      }
+    } catch (err) {
+      console.error("Failed to persist media files:", err);
+    }
+  };
+
+  const saveDatabase = (data: any) => {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+      if (data?.profile) {
+        persistMediaFiles(data.profile);
+      }
+      return true;
+    } catch (err) {
+      console.error("Error writing database file:", err);
+      return false;
+    }
+  };
+
+  // In-memory cache with version tracking
+  let serverData = loadDatabase() || {
+    profile: null,
+    schedule: null,
+    teachers: [],
+    attendanceRecords: [],
+    leaveRequests: [],
+    holidays: [],
+    version: 1,
+    lastUpdated: Date.now(),
+  };
+
+  if (serverData?.profile) {
+    persistMediaFiles(serverData.profile);
+  }
+
+  // Helper to determine base URL
+  const getBaseUrl = (req: express.Request) => {
+    const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+    const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost:3000";
+    if (process.env.APP_URL && process.env.APP_URL.startsWith("http")) {
+      return process.env.APP_URL.replace(/\/$/, "");
+    }
+    return `${proto}://${host}`;
+  };
+
+  const escapeHtmlAttr = (str: string) => {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  };
+
+  const renderDynamicHtml = (template: string, req: express.Request) => {
+    const baseUrl = getBaseUrl(req);
+    const cacheBuster = serverData.lastUpdated || Date.now();
+    const rawName = serverData.profile?.name || "SIMPRESENSI GTK Madrasah";
+    const title = `SIMPRESENSI Madrasah - ${rawName}`;
+    const desc = `Sistem Presensi Fingerprint & Rekapitulasi Laporan GTK ${rawName} Terintegrasi Kemenag`;
+    const ogImageUrl = `${baseUrl}/api/og-image?t=${cacheBuster}`;
+    const faviconUrl = serverData.profile?.faviconUrl 
+      ? `${baseUrl}/api/favicon?t=${cacheBuster}` 
+      : `${baseUrl}/favicon.svg`;
+    const canonicalUrl = `${baseUrl}${req.path === "/" ? "" : req.path}`;
+
+    let result = template;
+
+    // Replace <title>
+    result = result.replace(/<title>.*?<\/title>/gi, `<title>${escapeHtmlAttr(title)}</title>`);
+
+    // Replace standard description
+    result = result.replace(/<meta\s+name=["']description["']\s+content=["'].*?["']\s*\/?>/gi, 
+      `<meta name="description" content="${escapeHtmlAttr(desc)}" />`);
+
+    // Replace OpenGraph meta tags
+    result = result.replace(/<meta\s+property=["']og:title["']\s+content=["'].*?["']\s*\/?>/gi, 
+      `<meta property="og:title" content="${escapeHtmlAttr(title)}" />`);
+    result = result.replace(/<meta\s+property=["']og:description["']\s+content=["'].*?["']\s*\/?>/gi, 
+      `<meta property="og:description" content="${escapeHtmlAttr(desc)}" />`);
+    result = result.replace(/<meta\s+property=["']og:image["']\s+content=["'].*?["']\s*\/?>/gi, 
+      `<meta property="og:image" content="${ogImageUrl}" />`);
+    result = result.replace(/<meta\s+property=["']og:image:secure_url["']\s+content=["'].*?["']\s*\/?>/gi, 
+      `<meta property="og:image:secure_url" content="${ogImageUrl}" />`);
+
+    // Replace Twitter meta tags
+    result = result.replace(/<meta\s+name=["']twitter:title["']\s+content=["'].*?["']\s*\/?>/gi, 
+      `<meta name="twitter:title" content="${escapeHtmlAttr(title)}" />`);
+    result = result.replace(/<meta\s+name=["']twitter:description["']\s+content=["'].*?["']\s*\/?>/gi, 
+      `<meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />`);
+    result = result.replace(/<meta\s+name=["']twitter:image["']\s+content=["'].*?["']\s*\/?>/gi, 
+      `<meta name="twitter:image" content="${ogImageUrl}" />`);
+
+    // Favicon links
+    result = result.replace(/<link\s+rel=["']icon["'].*?>/gi, 
+      `<link rel="icon" type="image/png" href="${faviconUrl}" />`);
+    result = result.replace(/<link\s+rel=["']apple-touch-icon["'].*?>/gi, 
+      `<link rel="apple-touch-icon" href="${faviconUrl}" />`);
+
+    // Ensure og:url exists
+    if (result.includes('property="og:url"')) {
+      result = result.replace(/<meta\s+property=["']og:url["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta property="og:url" content="${canonicalUrl}" />`);
+    } else {
+      result = result.replace(/<\/head>/i, `    <meta property="og:url" content="${canonicalUrl}" />\n  </head>`);
+    }
+
+    return result;
+  };
+
+  // API Routes
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", service: "simpresensi-madrasah", version: serverData.version });
+  });
+
+  // GET /api/og-image, /og-image.jpg, /og-image.png - Serves Open Graph thumbnail image for WhatsApp/Facebook/Twitter/Telegram
+  const serveOgImage = (req: express.Request, res: express.Response) => {
+    try {
+      if (req.query.download === "1" || req.query.download === "true") {
+        res.setHeader("Content-Disposition", 'attachment; filename="og-image.jpg"');
+      }
+
+      // 1. If custom uploaded ogImageUrl exists in DB (Base64 data URL)
+      if (serverData.profile?.ogImageUrl && typeof serverData.profile.ogImageUrl === "string" && serverData.profile.ogImageUrl.startsWith("data:image/")) {
+        const matches = serverData.profile.ogImageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const contentType = matches[1];
+          const imgBuffer = Buffer.from(matches[2], "base64");
+          res.setHeader("Content-Type", contentType);
+          res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=120");
+          res.setHeader("Accept-Ranges", "bytes");
+          res.send(imgBuffer);
+          return;
+        }
+      }
+
+      // 2. If saved custom file exists on disk
+      if (fs.existsSync(CUSTOM_OG_FILE)) {
+        res.setHeader("Content-Type", "image/jpeg");
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=120");
+        res.setHeader("Accept-Ranges", "bytes");
+        res.sendFile(CUSTOM_OG_FILE);
+        return;
+      }
+
+      // 3. If custom logo or madrasah profile exists, generate high-resolution dynamic SVG Open Graph banner
+      if (serverData.profile?.name || serverData.profile?.logoUrl) {
+        const schoolName = serverData.profile?.name || "SIMPRESENSI MADRASAH";
+        const nsm = serverData.profile?.nsm ? `NSM: ${serverData.profile.nsm}` : "";
+        const npsn = serverData.profile?.npsn ? `NPSN: ${serverData.profile.npsn}` : "";
+        const subDetails = [nsm, npsn].filter(Boolean).join(" | ");
+        const address = serverData.profile?.city || serverData.profile?.district || "Kementerian Agama Republik Indonesia";
+        const logoEmbed = (serverData.profile?.logoUrl && serverData.profile.logoUrl.startsWith("data:image/")) 
+          ? `<image href="${serverData.profile.logoUrl}" x="920" y="100" width="180" height="180" preserveAspectRatio="xMidYMid meet"/>` 
+          : '';
+
+        const dynamicSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064e3b" />
+      <stop offset="50%" stop-color="#047857" />
+      <stop offset="100%" stop-color="#022c22" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="100%" stop-color="#ca8a04" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)" />
+
+  <g opacity="0.08" stroke="#ffffff" stroke-width="1.5" fill="none">
+    <circle cx="1100" cy="100" r="300" />
+    <circle cx="1100" cy="100" r="200" />
+    <circle cx="100" cy="550" r="250" />
+  </g>
+
+  <rect x="70" y="60" width="1060" height="510" rx="28" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.2" filter="url(#shadow)" />
+
+  <rect x="120" y="105" width="380" height="42" rx="21" fill="#10b981" fill-opacity="0.2" stroke="#34d399" stroke-width="1.5" />
+  <circle cx="145" cy="126" r="7" fill="#34d399" />
+  <text x="165" y="132" fill="#6ee7b7" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="bold" letter-spacing="1">SISTEM PRESENSI RESMI GTK</text>
+
+  ${logoEmbed}
+
+  <text x="120" y="215" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="900" letter-spacing="-0.5">${escapeHtmlAttr(schoolName)}</text>
+  
+  <text x="120" y="268" fill="url(#gold)" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="bold">
+    Sistem Presensi Fingerprint &amp; Rekapitulasi Laporan GTK Kemenag
+  </text>
+  
+  <text x="120" y="305" fill="#a7f3d0" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="600">
+    ${escapeHtmlAttr(subDetails || "Terintegrasi Simpatika &amp; Format SPTJM Bulanan")}
+  </text>
+
+  <g transform="translate(120, 350)">
+    <rect x="0" y="0" width="280" height="50" rx="14" fill="#042f2e" fill-opacity="0.75" stroke="#059669" stroke-width="1.5" />
+    <text x="22" y="31" fill="#e2e8f0" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">✓ Fingerprint .DAT / Excel</text>
+
+    <rect x="295" y="0" width="280" height="50" rx="14" fill="#042f2e" fill-opacity="0.75" stroke="#059669" stroke-width="1.5" />
+    <text x="317" y="31" fill="#e2e8f0" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">✓ Rekap Matriks &amp; SPTJM</text>
+
+    <rect x="590" y="0" width="280" height="50" rx="14" fill="#042f2e" fill-opacity="0.75" stroke="#059669" stroke-width="1.5" />
+    <text x="612" y="31" fill="#e2e8f0" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">✓ Sinkron Multi-Device</text>
+  </g>
+
+  <line x1="120" y1="465" x2="1030" y2="465" stroke="#ffffff" stroke-opacity="0.2" stroke-width="1" />
+  
+  <text x="120" y="508" fill="#a7f3d0" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="bold">
+    ${escapeHtmlAttr(address)}
+  </text>
+  <text x="1030" y="508" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="15" text-anchor="end">
+    simpresensi.madrasah.id
+  </text>
+</svg>`;
+
+        res.setHeader("Content-Type", "image/svg+xml");
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=120");
+        res.send(dynamicSvg);
+        return;
+      }
+
+      // 4. Fallback to default high-res JPG/PNG banner
+      const defaultJpgPath = path.join(process.cwd(), "public", "og-image.jpg");
+      if (fs.existsSync(defaultJpgPath)) {
+        res.setHeader("Content-Type", "image/jpeg");
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+        res.sendFile(defaultJpgPath);
+        return;
+      }
+
+      const defaultPngPath = path.join(process.cwd(), "public", "og-image.png");
+      if (fs.existsSync(defaultPngPath)) {
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+        res.sendFile(defaultPngPath);
+        return;
+      }
+
+      // 5. Fallback to dist if in production
+      const distJpgPath = path.join(process.cwd(), "dist", "og-image.jpg");
+      if (fs.existsSync(distJpgPath)) {
+        res.setHeader("Content-Type", "image/jpeg");
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+        res.sendFile(distJpgPath);
+        return;
+      }
+
+      res.status(404).send("Not Found");
+    } catch (e: any) {
+      console.error("Error serving og-image:", e);
+      res.status(500).send("Error generating image");
+    }
+  };
+
+  app.get("/api/og-image", serveOgImage);
+  app.get("/og-image.jpg", serveOgImage);
+  app.get("/og-image.png", serveOgImage);
+
+  // POST /api/upload-og-image - Direct API to upload custom thumbnail banner
+  app.post("/api/upload-og-image", (req, res) => {
+    try {
+      const { imageDataUrl } = req.body;
+      if (!imageDataUrl || typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
+        res.status(400).json({ success: false, error: "Format gambar base64 tidak valid" });
+        return;
+      }
+      const matches = imageDataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (!matches || matches.length !== 3) {
+        res.status(400).json({ success: false, error: "Gagal membaca format base64 gambar" });
+        return;
+      }
+      const buffer = Buffer.from(matches[2], "base64");
+      fs.writeFileSync(CUSTOM_OG_FILE, buffer);
+      
+      const pubJpg = path.join(process.cwd(), "public", "og-image.jpg");
+      const pubPng = path.join(process.cwd(), "public", "og-image.png");
+      try { fs.writeFileSync(pubJpg, buffer); } catch(e){}
+      try { fs.writeFileSync(pubPng, buffer); } catch(e){}
+
+      if (!serverData.profile) {
+        serverData.profile = {};
+      }
+      serverData.profile.ogImageUrl = imageDataUrl;
+      serverData.version = (serverData.version || 1) + 1;
+      serverData.lastUpdated = Date.now();
+      saveDatabase(serverData);
+
+      const baseUrl = getBaseUrl(req);
+      res.json({
+        success: true,
+        message: "Thumbnail gambar berhasil diunggah & tersimpan!",
+        ogImageUrl: `${baseUrl}/api/og-image?t=${serverData.lastUpdated}`,
+        version: serverData.version,
+        lastUpdated: serverData.lastUpdated,
+      });
+    } catch (e: any) {
+      console.error("Error uploading og image:", e);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // DELETE /api/upload-og-image - Delete custom thumbnail
+  app.delete("/api/upload-og-image", (_req, res) => {
+    try {
+      if (fs.existsSync(CUSTOM_OG_FILE)) {
+        try { fs.unlinkSync(CUSTOM_OG_FILE); } catch(e){}
+      }
+      if (serverData.profile) {
+        delete serverData.profile.ogImageUrl;
+      }
+      serverData.version = (serverData.version || 1) + 1;
+      serverData.lastUpdated = Date.now();
+      saveDatabase(serverData);
+
+      res.json({
+        success: true,
+        message: "Thumbnail khusus berhasil dihapus. Sistem kembali menggunakan banner default!",
+        version: serverData.version,
+        lastUpdated: serverData.lastUpdated,
+      });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // GET /api/favicon - Serves custom circular favicon or default
+  app.get("/api/favicon", (_req, res) => {
+    try {
+      if (serverData.profile?.faviconUrl && serverData.profile.faviconUrl.startsWith("data:image/")) {
+        const matches = serverData.profile.faviconUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const contentType = matches[1];
+          const imgBuffer = Buffer.from(matches[2], "base64");
+          res.setHeader("Content-Type", contentType);
+          res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+          res.send(imgBuffer);
+          return;
+        }
+      }
+
+      if (fs.existsSync(CUSTOM_FAVICON_FILE)) {
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+        res.sendFile(CUSTOM_FAVICON_FILE);
+        return;
+      }
+
+      const defaultFavicon = path.join(process.cwd(), "public", "favicon.svg");
+      if (fs.existsSync(defaultFavicon)) {
+        res.setHeader("Content-Type", "image/svg+xml");
+        res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+        res.sendFile(defaultFavicon);
+        return;
+      }
+
+      res.status(404).send("Not Found");
+    } catch (e: any) {
+      console.error("Error serving favicon:", e);
+      res.status(500).send("Error");
+    }
+  });
+
+  // GET /api/data - Retrieve all synchronized data across devices
+  app.get("/api/data", (_req, res) => {
+    res.json({
+      success: true,
+      data: serverData,
+    });
+  });
+
+  // GET /api/teachers - Directly get all GTK records
+  app.get("/api/teachers", (_req, res) => {
+    res.json({
+      success: true,
+      teachers: Array.isArray(serverData.teachers) ? serverData.teachers : [],
+      version: serverData.version || 1,
+    });
+  });
+
+  // DELETE /api/teachers/:id - Delete single GTK record
+  app.delete("/api/teachers/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ error: "ID GTK tidak valid" });
+        return;
+      }
+      serverData.teachers = (serverData.teachers || []).filter((t: any) => t.id !== id);
+      serverData.version = (serverData.version || 1) + 1;
+      serverData.lastUpdated = Date.now();
+      saveDatabase(serverData);
+
+      res.json({
+        success: true,
+        message: "Data GTK berhasil dihapus permanen",
+        teachers: serverData.teachers,
+        version: serverData.version,
+        lastUpdated: serverData.lastUpdated,
+      });
+    } catch (err: any) {
+      console.error("Error deleting teacher:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/profile - Retrieve current madrasah profile
+  app.get("/api/profile", (_req, res) => {
+    res.json({
+      success: true,
+      profile: serverData.profile,
+      version: serverData.version || 1,
+      lastUpdated: serverData.lastUpdated || Date.now(),
+    });
+  });
+
+  // POST /api/profile - Directly save/update Madrasah Profile atomically
+  app.post("/api/profile", (req, res) => {
+    try {
+      const { profile } = req.body;
+      if (!profile || typeof profile !== "object") {
+        res.status(400).json({ error: "Data profil madrasah tidak valid" });
+        return;
+      }
+      serverData.profile = {
+        ...(serverData.profile || {}),
+        ...profile,
+      };
+      serverData.version = (serverData.version || 1) + 1;
+      serverData.lastUpdated = Date.now();
+      saveDatabase(serverData);
+
+      res.json({
+        success: true,
+        message: "Profil madrasah berhasil disimpan permanen",
+        profile: serverData.profile,
+        version: serverData.version,
+        lastUpdated: serverData.lastUpdated,
+      });
+    } catch (err: any) {
+      console.error("Error saving profile:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/schedule - Directly save/update Work Schedule atomically
+  app.post("/api/schedule", (req, res) => {
+    try {
+      const { schedule } = req.body;
+      if (!schedule || typeof schedule !== "object") {
+        res.status(400).json({ error: "Data jadwal kerja tidak valid" });
+        return;
+      }
+      serverData.schedule = schedule;
+      serverData.version = (serverData.version || 1) + 1;
+      serverData.lastUpdated = Date.now();
+      saveDatabase(serverData);
+
+      res.json({
+        success: true,
+        message: "Jadwal kerja berhasil disimpan permanen",
+        schedule: serverData.schedule,
+        version: serverData.version,
+        lastUpdated: serverData.lastUpdated,
+      });
+    } catch (err: any) {
+      console.error("Error saving schedule:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/teachers - Directly save/update GTK records
+  app.post("/api/teachers", (req, res) => {
+    try {
+      const { teachers } = req.body;
+      if (!Array.isArray(teachers)) {
+        res.status(400).json({ error: "Format daftar guru harus berupa array" });
+        return;
+      }
+      serverData.teachers = teachers;
+      serverData.version = (serverData.version || 1) + 1;
+      serverData.lastUpdated = Date.now();
+      saveDatabase(serverData);
+
+      res.json({
+        success: true,
+        teachers: serverData.teachers,
+        version: serverData.version,
+        lastUpdated: serverData.lastUpdated,
+      });
+    } catch (err: any) {
+      console.error("Error saving teachers:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/save-record - Save single attendance record atomically
+  app.post("/api/save-record", (req, res) => {
+    try {
+      const rec = req.body;
+      if (!rec || !rec.teacherId || !rec.date) {
+        res.status(400).json({ error: "Data presensi tidak lengkap" });
+        return;
+      }
+      if (!Array.isArray(serverData.attendanceRecords)) {
+        serverData.attendanceRecords = [];
+      }
+      const idx = serverData.attendanceRecords.findIndex(
+        (r: any) => r.id === rec.id || (r.teacherId === rec.teacherId && r.date === rec.date)
+      );
+      if (idx >= 0) {
+        serverData.attendanceRecords[idx] = rec;
+      } else {
+        serverData.attendanceRecords.unshift(rec);
+      }
+      serverData.version = (serverData.version || 1) + 1;
+      serverData.lastUpdated = Date.now();
+      saveDatabase(serverData);
+
+      res.json({
+        success: true,
+        record: rec,
+        version: serverData.version,
+        lastUpdated: serverData.lastUpdated,
+      });
+    } catch (err: any) {
+      console.error("Error saving attendance record:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/data/version - Lightweight polling to check for updates from other devices
+  app.get("/api/data/version", (_req, res) => {
+    res.json({
+      version: serverData.version || 1,
+      lastUpdated: serverData.lastUpdated || Date.now(),
+      teacherCount: Array.isArray(serverData.teachers) ? serverData.teachers.length : 0,
+      recordCount: Array.isArray(serverData.attendanceRecords) ? serverData.attendanceRecords.length : 0,
+    });
+  });
+
+  // POST /api/data - Synchronize whole or partial data from any browser/device
+  app.post("/api/data", (req, res) => {
+    try {
+      const payload = req.body;
+      if (!payload || typeof payload !== "object") {
+        res.status(400).json({ error: "Invalid payload format" });
+        return;
+      }
+
+      // Merge payload into serverData
+      const updatedData = {
+        ...serverData,
+        ...payload,
+        version: (serverData.version || 1) + 1,
+        lastUpdated: Date.now(),
+      };
+
+      // Ensure lists are valid arrays
+      if (Array.isArray(payload.teachers)) updatedData.teachers = payload.teachers;
+      if (Array.isArray(payload.attendanceRecords)) updatedData.attendanceRecords = payload.attendanceRecords;
+      if (Array.isArray(payload.leaveRequests)) updatedData.leaveRequests = payload.leaveRequests;
+      if (Array.isArray(payload.holidays)) updatedData.holidays = payload.holidays;
+      if (payload.profile) updatedData.profile = payload.profile;
+      if (payload.schedule) updatedData.schedule = payload.schedule;
+
+      serverData = updatedData;
+      saveDatabase(serverData);
+
+      res.json({
+        success: true,
+        version: serverData.version,
+        lastUpdated: serverData.lastUpdated,
+      });
+    } catch (err: any) {
+      console.error("Error saving data:", err);
+      res.status(500).json({ error: "Gagal menyimpan data ke server: " + err.message });
+    }
+  });
+
+  // Endpoint to download complete ready-to-use Plesk ZIP
+  app.all("/api/download-plesk-zip", async (req, res) => {
+    try {
+      const userEmail = req.body?.userEmail || req.query?.userEmail || "mas.jaenalmaskun@gmail.com";
+      let { sqlContent, phpContent, htaccessContent, readmeContent, htmlGuide } = req.body || {};
+      
+      const exportOptions = {
+        profile: serverData.profile,
+        schedule: serverData.schedule,
+        teachers: serverData.teachers || [],
+        attendanceRecords: serverData.attendanceRecords || [],
+        leaveRequests: serverData.leaveRequests || [],
+        holidays: serverData.holidays || [],
+      };
+
+      if (!sqlContent) sqlContent = generateMySQLDump(exportOptions);
+      if (!phpContent) phpContent = generatePHPBackend();
+      if (!htaccessContent) htaccessContent = generateHtaccess();
+      if (!readmeContent) readmeContent = generateReadme(exportOptions);
+      if (!htmlGuide) htmlGuide = generatePleskHtmlGuide();
+
+      const zip = new JSZip();
+
+      // 1. Add SQL Dump
+      zip.file("database.sql", sqlContent);
+
+      // 2. Add PHP API Backend
+      zip.file("api.php", phpContent);
+
+      // 3. Add .htaccess
+      zip.file(".htaccess", htaccessContent);
+
+      // 4. Add Documentation
+      zip.file("README_PLESK.txt", readmeContent);
+      zip.file("PANDUAN_INSTALASI_PLESK.html", htmlGuide);
+
+      // 5. Add built dist assets (index.html, assets/*.js, assets/*.css, images, favicons)
+      const distPath = path.join(process.cwd(), "dist");
+      if (fs.existsSync(distPath)) {
+        const addFolderToZip = (dirPath: string, zipFolder: JSZip) => {
+          const items = fs.readdirSync(dirPath);
+          for (const item of items) {
+            const itemPath = path.join(dirPath, item);
+            const stat = fs.statSync(itemPath);
+            if (stat.isDirectory()) {
+              const subFolder = zipFolder.folder(item);
+              if (subFolder) addFolderToZip(itemPath, subFolder);
+            } else {
+              // Exclude server.cjs from client zip since Plesk uses Apache/PHP
+              if (!item.endsWith(".cjs") && !item.endsWith(".cjs.map")) {
+                const fileData = fs.readFileSync(itemPath);
+                zipFolder.file(item, fileData);
+              }
+            }
+          }
+        };
+        addFolderToZip(distPath, zip);
+      }
+
+      // 6. Ensure public fallback assets are included if not in dist
+      const publicPath = path.join(process.cwd(), "public");
+      if (fs.existsSync(publicPath)) {
+        const pubItems = fs.readdirSync(publicPath);
+        for (const pItem of pubItems) {
+          const pPath = path.join(publicPath, pItem);
+          const pStat = fs.statSync(pPath);
+          if (!pStat.isDirectory() && !zip.file(pItem)) {
+            zip.file(pItem, fs.readFileSync(pPath));
+          }
+        }
+      }
+
+      const zipBuffer = await zip.generateAsync({
+        type: "nodebuffer",
+        compression: "DEFLATE",
+        compressionOptions: { level: 9 },
+      });
+
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", 'attachment; filename="SIMPRESENSI_Plesk_MySQL_jaenal_absensi.zip"');
+      res.send(zipBuffer);
+    } catch (err: any) {
+      console.error("Error generating Plesk zip:", err);
+      res.status(500).json({ error: "Gagal membuat file ZIP Plesk: " + err.message });
+    }
+  });
+
+  // AI Analysis Endpoint for Teacher Attendance & Discipline Report
+  app.post("/api/analyze-attendance", async (req, res) => {
+    try {
+      const { madrasahInfo, summaryData, teacherStats, monthYear, promptType } = req.body;
+      
+      const ai = getGeminiClient();
+      
+      const systemInstruction = `Anda adalah Asisten Pakar Manajemen Kepegawaian & Tata Usaha Madrasah (Kementerian Agama RI). 
+Tugas Anda adalah membuat analisis, catatan supervisi kepala madrasah, rekomendasi kedisiplinan guru, atau draft narasi laporan bulanan berdasarkan data presensi fingerprint.
+Gunakan bahasa formal Indonesia yang santun, apresiatif, edukatif, dan sesuai standar Kemenag (Kementerian Agama Republik Indonesia).`;
+
+      let userPrompt = "";
+      if (promptType === "supervision_summary") {
+        userPrompt = `Madrasah: ${madrasahInfo?.name || "Madrasah"} (${madrasahInfo?.nsmNpsn || ""})
+Periode: ${monthYear}
+Total Guru & Tenaga Kependidikan: ${summaryData?.totalTeachers || 0}
+Rata-rata Kehadiran: ${summaryData?.avgAttendanceRate || 0}%
+Total Hari Kerja Efektif: ${summaryData?.effectiveWorkingDays || 0} hari
+Guru dengan Kehadiran 100%: ${summaryData?.perfectAttendanceCount || 0} orang
+Total Keterlambatan: ${summaryData?.totalLateMinutes || 0} menit
+
+Data Ringkas GTK:
+${JSON.stringify(teacherStats?.slice(0, 15), null, 2)}
+
+Tolong buatkan:
+1. Ringkasan Eksekutif Kehadiran Guru Madrasah Bulan Ini
+2. Catatan Apresiasi untuk GTK dengan Disiplin & Kehadiran Terbaik (Teladan)
+3. Evaluasi & Catatan Pembinaan bagi GTK yang sering terlambat / memiliki kendala kehadiran
+4. Rekomendasi Langkah Kebijakan Kepala Madrasah untuk Peningkatan Kinerja & Disiplin
+5. Kesimpulan Kesiapan Berkas untuk Validasi SPTJM TPG / Simpatika`;
+      } else if (promptType === "sptjm_narrative") {
+        userPrompt = `Buatkan narasi resmi lampiran pengantar Surat Pernyataan Tanggung Jawab Mutlak (SPTJM) Laporan Kehadiran Guru Madrasah ${madrasahInfo?.name || "Madrasah"} untuk keperluan pencairan Tunjangan Profesi Guru (TPG) / Insentif GBPNS Kemenag periode ${monthYear}. Format resmi, ringkas, dan jelas.`;
+      } else {
+        userPrompt = `Buatkan analisis kehadiran GTK madrasah: ${JSON.stringify(req.body, null, 2)}`;
+      }
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: userPrompt,
+        config: {
+          systemInstruction,
+          temperature: 0.7,
+        },
+      });
+
+      res.json({
+        success: true,
+        analysis: response.text,
+      });
+    } catch (error: any) {
+      console.error("Gemini API Error:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message || "Gagal memproses analisis AI",
+        fallback: "Analisis otomatis tidak dapat dijalankan (periksa konfigurasi API Key). Sistem tetap dapat mencetak laporan dan rekapitulasi data presensi secara penuh."
+      });
+    }
+  });
+
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api")) return next();
+      try {
+        const indexPath = path.join(distPath, "index.html");
+        if (fs.existsSync(indexPath)) {
+          const rawHtml = fs.readFileSync(indexPath, "utf-8");
+          const finalHtml = renderDynamicHtml(rawHtml, req);
+          res.status(200).set({
+            "Content-Type": "text/html",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+          }).end(finalHtml);
+          return;
+        }
+      } catch (err) {
+        console.error("Error rendering dynamic HTML in production:", err);
+      }
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`SIMPRESENSI Madrasah Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+});

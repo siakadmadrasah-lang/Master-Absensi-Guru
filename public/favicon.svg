@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="50%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#064e3b" />
+    </linearGradient>
+    <linearGradient id="goldRing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="50%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Lingkaran Luar (Background Bulat) -->
+  <circle cx="32" cy="32" r="30" fill="url(#bgGrad)" />
+  
+  <!-- Bingkai Lingkaran Emas -->
+  <circle cx="32" cy="32" r="28.5" fill="none" stroke="url(#goldRing)" stroke-width="1.8" />
+  <circle cx="32" cy="32" r="26" fill="none" stroke="#065f46" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.6" />
+
+  <!-- Motif Presensi Fingerprint & Kubah Madrasah -->
+  <g fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Lengkungan Luar Fingerprint / Kubah -->
+    <path d="M21 37 C21 24, 43 24, 43 37" />
+    <!-- Lengkungan Tengah -->
+    <path d="M26 38 C26 28, 38 28, 38 38" />
+    <!-- Inti Sidik Jari -->
+    <path d="M30 40 C30 33, 34 33, 34 40" />
+    <!-- Alur Bawah Sidik Jari -->
+    <path d="M19 41 C19 47, 26 50, 32 50 C38 50, 45 47, 45 41" />
+    <path d="M23 44 C27 47.5, 37 47.5, 41 44" />
+  </g>
+
+  <!-- Bintang Prestasi Keagamaan Emas di Atas -->
+  <path d="M32 13 L33.2 16.8 L37 16.8 L34 19 L35.1 22.8 L32 20.5 L28.9 22.8 L30 19 L27 16.8 L30.8 16.8 Z" fill="#fbbf24" />
+</svg>

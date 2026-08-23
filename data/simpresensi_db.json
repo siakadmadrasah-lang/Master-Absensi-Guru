@@ -1,0 +1,59 @@
+{
+  "profile": {
+    "name": "MI MA'ARIF NU 02 SANGGREMAN",
+    "level": "MI",
+    "nsm": "111233020085",
+    "npsn": "60712345",
+    "status": "SWASTA",
+    "foundationName": "LP MA'ARIF NU KABUPATEN BANYUMAS",
+    "address": "Jl. Lapangan Desa Sanggreman No. 04, RT 02 RW 03",
+    "village": "Sanggreman",
+    "district": "Rawalo",
+    "city": "Kabupaten Banyumas",
+    "province": "Jawa Tengah",
+    "postalCode": "53173",
+    "phone": "(0281) 6841234",
+    "email": "mimaarifnu2sanggreman@gmail.com",
+    "website": "www.mimaarifnu2sanggreman.sch.id",
+    "headmasterName": "Siti Rochimah, S.Pd.I.",
+    "headmasterNip": "197805122005011004",
+    "headmasterNuptk": "7435756658200023",
+    "headmasterSignatureTitle": "Kepala Madrasah",
+    "tuAdminName": "Nurul Hidayati, S.Kom.",
+    "tuAdminNip": "198910242019032011",
+    "letterHeader1": "LEMBAGA PENDIDIKAN MA'ARIF NU",
+    "letterHeader2": "KEMENTERIAN AGAMA REPUBLIK INDONESIA",
+    "signaturePosition": "KEPALA_KIRI_GURU_KANAN",
+    "signaturePlace": "Sanggreman",
+    "signatureLeftTitle": "Mengetahui,\nKepala Madrasah",
+    "signatureRightTitle": "Guru Yang Bersangkutan"
+  },
+  "schedule": {
+    "mondayThursday": {
+      "checkInStart": "06:00",
+      "checkInLimit": "07:15",
+      "checkOutStart": "14:00",
+      "checkOutEnd": "17:00"
+    },
+    "friday": {
+      "checkInStart": "06:00",
+      "checkInLimit": "07:00",
+      "checkOutStart": "11:30",
+      "checkOutEnd": "16:00"
+    },
+    "saturday": {
+      "checkInStart": "06:00",
+      "checkInLimit": "07:15",
+      "checkOutStart": "13:00",
+      "checkOutEnd": "16:30"
+    },
+    "toleranceMinutes": 5,
+    "workDaysCount": 6
+  },
+  "teachers": [],
+  "attendanceRecords": [],
+  "leaveRequests": [],
+  "holidays": [],
+  "version": 4,
+  "lastUpdated": 1786931432867
+}

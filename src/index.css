@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@layer utilities {
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+@media print {
+  html, body, #root {
+    background-color: white !important;
+    color: black !important;
+    font-size: 10pt !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide navigation, buttons, controls, and anything with print:hidden */
+  header, footer, nav, button, input, select, .print\:hidden, #kiosk-scanner-container {
+    display: none !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
+  @page {
+    size: auto;
+    margin: 8mm 10mm 10mm 10mm;
+  }
+
+  table {
+    page-break-inside: auto;
+    width: 100% !important;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  /* Clean up borders and shadows for physical paper printing */
+  .shadow-md, .shadow-sm, .shadow-lg, .shadow-xl {
+    box-shadow: none !important;
+  }
+
+  .rounded-2xl, .rounded-xl {
+    border-radius: 4px !important;
+  }
+}
+

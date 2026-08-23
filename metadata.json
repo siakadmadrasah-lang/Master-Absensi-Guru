@@ -1,0 +1,8 @@
+{
+  "name": "SIMPRESENSI Madrasah - Sistem Presensi Fingerprint \u0026 Laporan Guru",
+  "description": "Aplikasi lengkap presensi sidik jari (fingerprint) dan laporan kehadiran Guru \u0026 Tenaga Kependidikan (GTK) Madrasah terintegrasi format Kemenag, Simpatika, dan SPTJM.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
