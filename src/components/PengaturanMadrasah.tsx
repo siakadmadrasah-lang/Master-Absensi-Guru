@@ -25,7 +25,8 @@ import {
   ExternalLink,
   Sparkles,
   Info,
-  HelpCircle
+  HelpCircle,
+  Server
 } from 'lucide-react';
 import { MadrasahProfile, WorkSchedule, HolidayItem, Teacher } from '../types';
 import { downloadGTKTemplateExcel, exportTeachersListToExcel } from '../utils/attendanceUtils';
@@ -43,6 +44,7 @@ interface PengaturanMadrasahProps {
   onImportAllData: (jsonData: string) => void;
   onResetSampleData: () => void;
   onBatchImportTeachers?: (teachers: Teacher[], mode: 'append' | 'replace') => void;
+  onOpenCpanelExport?: () => void;
 }
 
 export const PengaturanMadrasah: React.FC<PengaturanMadrasahProps> = ({
@@ -58,6 +60,7 @@ export const PengaturanMadrasah: React.FC<PengaturanMadrasahProps> = ({
   onImportAllData,
   onResetSampleData,
   onBatchImportTeachers,
+  onOpenCpanelExport,
 }) => {
   const [formProfile, _setFormProfile] = useState<MadrasahProfile>(() => ({
     ...profile,
@@ -2217,6 +2220,58 @@ export const PengaturanMadrasah: React.FC<PengaturanMadrasahProps> = ({
                   </p>
                 </button>
               )}
+            </div>
+          </div>
+
+          {/* cPanel & MySQL Auto-Sync Integration Card */}
+          <div className="bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-900 rounded-2xl p-6 shadow-md border border-emerald-500/40 text-white space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-700/40 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600/30 border border-emerald-500/50 flex items-center justify-center text-emerald-400">
+                  <Server className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                    <span>Integrasi Hosting cPanel & Penyimpanan Otomatis MySQL</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
+                      AUTO-SYNC AKTIF
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    Sistem otomatis mensinkronkan dan menyimpan seluruh data presensi, GTK, profil, dan jadwal ke database MySQL <strong className="text-emerald-300 font-mono">masbagoes_absensi</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {onOpenCpanelExport && (
+                <button
+                  type="button"
+                  onClick={onOpenCpanelExport}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-sm transition cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Kelola cPanel & Download ZIP</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
+              <div className="p-3 bg-slate-950/90 rounded-xl border border-slate-800">
+                <div className="text-[10px] font-sans text-slate-400">Database Name</div>
+                <div className="font-bold text-emerald-300">masbagoes_absensi</div>
+              </div>
+              <div className="p-3 bg-slate-950/90 rounded-xl border border-slate-800">
+                <div className="text-[10px] font-sans text-slate-400">Database User</div>
+                <div className="font-bold text-emerald-300">masbagoes_absensi</div>
+              </div>
+              <div className="p-3 bg-slate-950/90 rounded-xl border border-slate-800">
+                <div className="text-[10px] font-sans text-slate-400">Database Password</div>
+                <div className="font-bold text-emerald-300">masbagus15</div>
+              </div>
+              <div className="p-3 bg-slate-950/90 rounded-xl border border-slate-800">
+                <div className="text-[10px] font-sans text-slate-400">Host & Port</div>
+                <div className="font-bold text-emerald-300">localhost : 3306</div>
+              </div>
             </div>
           </div>
 

@@ -1035,6 +1035,7 @@ export default function App() {
               onImportAllData={handleImportAllData}
               onResetSampleData={handleResetSampleData}
               onBatchImportTeachers={handleBatchImportTeachers}
+              onOpenCpanelExport={() => setIsPleskModalOpen(true)}
             />
           ) : (
             <div className="bg-white rounded-2xl p-8 text-center border border-amber-200">

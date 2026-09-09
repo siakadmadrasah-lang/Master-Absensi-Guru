@@ -190,15 +190,15 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Right Info: Super Admin Actions + User Pill + Live Date & Clock + Logout */}
         <div className="flex items-center gap-2 flex-wrap justify-end">
           
-          {/* Super Admin Exclusive Plesk Export Button */}
-          {isSuperAdmin && onOpenPleskExport && (
+          {/* Admin & Super Admin cPanel & MySQL Export Button */}
+          {(isSuperAdmin || currentUser?.role === 'ADMIN' || currentUser?.role === 'OPERATOR_TU') && onOpenPleskExport && (
             <button
               onClick={onOpenPleskExport}
-              title="Download File ZIP Siap Pakai Plesk (Database MySQL: jaenal_absensi)"
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-bold rounded-lg text-xs shadow-sm border border-amber-300 transition"
+              title="Download File ZIP Siap Pakai cPanel (Database MySQL: masbagoes_absensi) dan Kelola Auto-Sync"
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-emerald-400 via-amber-400 to-amber-500 hover:from-emerald-300 hover:to-amber-400 text-slate-950 font-bold rounded-lg text-xs shadow-sm border border-amber-300 transition cursor-pointer"
             >
-              <Server className="w-3.5 h-3.5" />
-              <span>Paket Plesk</span>
+              <Server className="w-3.5 h-3.5 text-slate-950" />
+              <span>cPanel & MySQL</span>
             </button>
           )}
 

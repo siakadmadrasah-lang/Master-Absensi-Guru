@@ -5,6 +5,7 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import JSZip from "jszip";
+import mysql from "mysql2/promise";
 import { 
   generateMySQLDump, 
   generatePHPBackend, 
@@ -12,6 +13,15 @@ import {
   generateReadme, 
   generatePleskHtmlGuide 
 } from "./src/utils/pleskPackageGenerator";
+import {
+  generateMySQLDumpForCpanel,
+  generatePHPBackendForCpanel,
+  generateDbConfigFileForCpanel,
+  generateHtaccessForCpanel,
+  generateReadmeCpanel,
+  generateCpanelHtmlGuide,
+  CPANEL_DEFAULT_DB
+} from "./src/utils/cpanelPackageGenerator";
 
 dotenv.config();
 
@@ -111,10 +121,347 @@ async function startServer() {
       if (data?.profile) {
         persistMediaFiles(data.profile);
       }
+      // Otomatis sinkronisasi & simpan ke MySQL database masbagoes_absensi
+      syncDataToMySQL(data).catch(() => {});
       return true;
     } catch (err) {
       console.error("Error writing database file:", err);
       return false;
+    }
+  };
+
+  // ============================================================
+  // MySQL Persistence & Auto-Sync Engine (Database: masbagoes_absensi)
+  // ============================================================
+  let mysqlPool: mysql.Pool | null = null;
+
+  let currentMysqlConfig = {
+    host: process.env.MYSQL_HOST || "localhost",
+    port: Number(process.env.MYSQL_PORT) || 3306,
+    user: process.env.MYSQL_USER || "masbagoes_absensi",
+    password: process.env.MYSQL_PASSWORD || "masbagus15",
+    database: process.env.MYSQL_DATABASE || "masbagoes_absensi",
+    waitForConnections: true,
+    connectionLimit: 10,
+    connectTimeout: 5000,
+  };
+
+  const mysqlStatus = {
+    connected: false,
+    autoSyncEnabled: true,
+    lastAttempt: 0,
+    lastSyncTime: null as number | null,
+    lastSyncStatus: "standby" as "standby" | "success" | "error" | "syncing",
+    lastError: null as string | null,
+    database: currentMysqlConfig.database,
+    user: currentMysqlConfig.user,
+    host: currentMysqlConfig.host,
+    port: currentMysqlConfig.port,
+    syncedCount: 0,
+  };
+
+  const getMysqlPool = (cfg = currentMysqlConfig): mysql.Pool => {
+    if (!mysqlPool) {
+      mysqlPool = mysql.createPool(cfg);
+    }
+    return mysqlPool;
+  };
+
+  const resetMysqlPool = (newCfg: typeof currentMysqlConfig) => {
+    if (mysqlPool) {
+      try { mysqlPool.end(); } catch (e) {}
+      mysqlPool = null;
+    }
+    currentMysqlConfig = { ...newCfg };
+    mysqlStatus.database = currentMysqlConfig.database;
+    mysqlStatus.user = currentMysqlConfig.user;
+    mysqlStatus.host = currentMysqlConfig.host;
+    mysqlStatus.port = currentMysqlConfig.port;
+    mysqlPool = mysql.createPool(currentMysqlConfig);
+  };
+
+  const initMySQLTables = async (pool: mysql.Pool) => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS madrasah_profile (
+        id INT NOT NULL AUTO_INCREMENT,
+        name VARCHAR(255) NOT NULL,
+        nsm VARCHAR(50) DEFAULT NULL,
+        npsn VARCHAR(50) DEFAULT NULL,
+        raw_json LONGTEXT DEFAULT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS work_schedules (
+        id INT NOT NULL AUTO_INCREMENT,
+        workDaysCount INT DEFAULT 6,
+        toleranceMinutes INT DEFAULT 5,
+        raw_json LONGTEXT DEFAULT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS teachers (
+        id VARCHAR(64) NOT NULL,
+        fingerprintId INT NOT NULL,
+        nik VARCHAR(20) NOT NULL,
+        nip VARCHAR(50) DEFAULT '-',
+        nuptk VARCHAR(50) DEFAULT '-',
+        pegId VARCHAR(50) DEFAULT '-',
+        name VARCHAR(255) NOT NULL,
+        title VARCHAR(50) DEFAULT '',
+        position VARCHAR(150) DEFAULT 'Guru Kelas',
+        employmentStatus VARCHAR(50) DEFAULT 'GTY',
+        role VARCHAR(50) DEFAULT 'GURU',
+        pin VARCHAR(50) DEFAULT '123456',
+        gender ENUM('L','P') DEFAULT 'L',
+        phone VARCHAR(50) DEFAULT '-',
+        email VARCHAR(100) DEFAULT '',
+        teachingHoursPerWeek INT DEFAULT 24,
+        isBiometricEnrolled TINYINT(1) DEFAULT 1,
+        avatarColor VARCHAR(50) DEFAULT 'bg-emerald-700',
+        isActive TINYINT(1) DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY idx_nik (nik)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS attendance_records (
+        id VARCHAR(64) NOT NULL,
+        teacherId VARCHAR(64) NOT NULL,
+        date DATE NOT NULL,
+        checkInTime VARCHAR(20) DEFAULT NULL,
+        checkOutTime VARCHAR(20) DEFAULT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'HADIR',
+        method VARCHAR(50) DEFAULT 'FINGERPRINT',
+        lateMinutes INT DEFAULT 0,
+        earlyMinutes INT DEFAULT 0,
+        notes TEXT DEFAULT NULL,
+        deviceIp VARCHAR(100) DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY idx_teacher_date (teacherId, date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS leave_requests (
+        id VARCHAR(64) NOT NULL,
+        teacherId VARCHAR(64) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        startDate DATE NOT NULL,
+        endDate DATE NOT NULL,
+        reason TEXT NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'APPROVED',
+        documentUrl TEXT DEFAULT NULL,
+        approvedBy VARCHAR(255) DEFAULT NULL,
+        createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS holidays (
+        id VARCHAR(64) NOT NULL,
+        date DATE NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        type VARCHAR(50) DEFAULT 'NASIONAL',
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sync_logs (
+        id INT NOT NULL AUTO_INCREMENT,
+        action VARCHAR(100) NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'SUCCESS',
+        message TEXT DEFAULT NULL,
+        synced_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+  };
+
+  const syncDataToMySQL = async (data: any): Promise<boolean> => {
+    if (!data || !mysqlStatus.autoSyncEnabled) return false;
+    try {
+      mysqlStatus.lastAttempt = Date.now();
+      mysqlStatus.lastSyncStatus = "syncing";
+      const pool = getMysqlPool();
+
+      await initMySQLTables(pool);
+
+      // 1. Profile
+      if (data.profile) {
+        await pool.query(
+          `INSERT INTO madrasah_profile (id, name, nsm, npsn, raw_json)
+           VALUES (1, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE name=VALUES(name), nsm=VALUES(nsm), npsn=VALUES(npsn), raw_json=VALUES(raw_json)`,
+          [
+            data.profile.name || "Madrasah",
+            data.profile.nsm || "",
+            data.profile.npsn || "",
+            JSON.stringify(data.profile),
+          ]
+        );
+      }
+
+      // 2. Schedule
+      if (data.schedule) {
+        await pool.query(
+          `INSERT INTO work_schedules (id, workDaysCount, toleranceMinutes, raw_json)
+           VALUES (1, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE workDaysCount=VALUES(workDaysCount), toleranceMinutes=VALUES(toleranceMinutes), raw_json=VALUES(raw_json)`,
+          [
+            data.schedule.workDaysCount || 6,
+            data.schedule.toleranceMinutes || 5,
+            JSON.stringify(data.schedule),
+          ]
+        );
+      }
+
+      // 3. Teachers
+      if (Array.isArray(data.teachers) && data.teachers.length > 0) {
+        for (const t of data.teachers) {
+          if (!t.id) continue;
+          await pool.query(
+            `INSERT INTO teachers (id, fingerprintId, nik, nip, nuptk, pegId, name, title, position, employmentStatus, role, pin, gender, phone, email, teachingHoursPerWeek, isBiometricEnrolled, avatarColor, isActive)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE 
+               fingerprintId=VALUES(fingerprintId), nik=VALUES(nik), nip=VALUES(nip), nuptk=VALUES(nuptk),
+               pegId=VALUES(pegId), name=VALUES(name), title=VALUES(title), position=VALUES(position),
+               employmentStatus=VALUES(employmentStatus), role=VALUES(role), pin=VALUES(pin), gender=VALUES(gender),
+               phone=VALUES(phone), email=VALUES(email), teachingHoursPerWeek=VALUES(teachingHoursPerWeek),
+               isBiometricEnrolled=VALUES(isBiometricEnrolled), avatarColor=VALUES(avatarColor), isActive=VALUES(isActive)`,
+            [
+              t.id,
+              t.fingerprintId || 0,
+              t.nik || t.id,
+              t.nip || "-",
+              t.nuptk || "-",
+              t.pegId || "-",
+              t.name || "Guru",
+              t.title || "",
+              t.position || "Guru",
+              t.employmentStatus || "GTY",
+              t.role || "GURU",
+              t.pin || "123456",
+              t.gender || "L",
+              t.phone || "-",
+              t.email || "",
+              t.teachingHoursPerWeek || 24,
+              t.isBiometricEnrolled ? 1 : 0,
+              t.avatarColor || "bg-emerald-700",
+              t.isActive !== false ? 1 : 0,
+            ]
+          );
+        }
+      }
+
+      // 4. Attendance Records
+      if (Array.isArray(data.attendanceRecords) && data.attendanceRecords.length > 0) {
+        for (const r of data.attendanceRecords) {
+          if (!r.id || !r.teacherId || !r.date) continue;
+          await pool.query(
+            `INSERT INTO attendance_records (id, teacherId, date, checkInTime, checkOutTime, status, method, lateMinutes, earlyMinutes, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE 
+               checkInTime=VALUES(checkInTime), checkOutTime=VALUES(checkOutTime),
+               status=VALUES(status), method=VALUES(method), lateMinutes=VALUES(lateMinutes),
+               earlyMinutes=VALUES(earlyMinutes), notes=VALUES(notes)`,
+            [
+              r.id,
+              r.teacherId,
+              r.date,
+              r.checkInTime || null,
+              r.checkOutTime || null,
+              r.status || "HADIR",
+              r.method || r.verificationMethod || "FINGERPRINT",
+              r.lateMinutes || 0,
+              r.earlyMinutes || r.earlyLeaveMinutes || 0,
+              r.notes || "",
+            ]
+          );
+        }
+      }
+
+      // 5. Leave Requests
+      if (Array.isArray(data.leaveRequests) && data.leaveRequests.length > 0) {
+        for (const lr of data.leaveRequests) {
+          if (!lr.id || !lr.teacherId) continue;
+          await pool.query(
+            `INSERT INTO leave_requests (id, teacherId, type, startDate, endDate, reason, status, approvedBy)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE type=VALUES(type), startDate=VALUES(startDate), endDate=VALUES(endDate), reason=VALUES(reason), status=VALUES(status), approvedBy=VALUES(approvedBy)`,
+            [
+              lr.id,
+              lr.teacherId,
+              lr.type || "IZIN",
+              lr.startDate || new Date().toISOString().split("T")[0],
+              lr.endDate || new Date().toISOString().split("T")[0],
+              lr.reason || "Izin",
+              lr.status || "APPROVED",
+              lr.approvedBy || "Kepala Madrasah",
+            ]
+          );
+        }
+      }
+
+      // 6. Log Sync
+      await pool.query(
+        "INSERT INTO sync_logs (action, status, message) VALUES ('AUTO_SYNC', 'SUCCESS', 'Auto-sync ke MySQL masbagoes_absensi berhasil')"
+      );
+
+      mysqlStatus.connected = true;
+      mysqlStatus.lastSyncTime = Date.now();
+      mysqlStatus.lastSyncStatus = "success";
+      mysqlStatus.lastError = null;
+      mysqlStatus.syncedCount = (data.attendanceRecords?.length || 0) + (data.teachers?.length || 0);
+      return true;
+    } catch (err: any) {
+      mysqlStatus.connected = false;
+      mysqlStatus.lastSyncStatus = "error";
+      mysqlStatus.lastError = err.message;
+      return false;
+    }
+  };
+
+  const syncSingleAttendanceRecordToMySQL = async (rec: any) => {
+    if (!rec || !mysqlStatus.autoSyncEnabled) return;
+    try {
+      const pool = getMysqlPool();
+      await pool.query(
+        `INSERT INTO attendance_records (id, teacherId, date, checkInTime, checkOutTime, status, method, lateMinutes, earlyMinutes, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE 
+           checkInTime=VALUES(checkInTime), checkOutTime=VALUES(checkOutTime),
+           status=VALUES(status), method=VALUES(method), lateMinutes=VALUES(lateMinutes),
+           earlyMinutes=VALUES(earlyMinutes), notes=VALUES(notes)`,
+        [
+          rec.id,
+          rec.teacherId,
+          rec.date,
+          rec.checkInTime || null,
+          rec.checkOutTime || null,
+          rec.status || "HADIR",
+          rec.method || rec.verificationMethod || "FINGERPRINT",
+          rec.lateMinutes || 0,
+          rec.earlyMinutes || rec.earlyLeaveMinutes || 0,
+          rec.notes || "",
+        ]
+      );
+      mysqlStatus.connected = true;
+      mysqlStatus.lastSyncTime = Date.now();
+      mysqlStatus.lastSyncStatus = "success";
+    } catch (e: any) {
+      mysqlStatus.connected = false;
+      mysqlStatus.lastError = e.message;
     }
   };
 
@@ -766,6 +1113,244 @@ async function startServer() {
     } catch (err: any) {
       console.error("Error generating Plesk zip:", err);
       res.status(500).json({ error: "Gagal membuat file ZIP Plesk: " + err.message });
+    }
+  });
+
+  // ============================================================
+  // Endpoint to download complete ready-to-use cPanel ZIP (masbagoes_absensi)
+  // ============================================================
+  app.all("/api/download-cpanel-zip", async (req, res) => {
+    try {
+      const dbConfig = {
+        dbUser: req.body?.dbUser || req.query?.dbUser || CPANEL_DEFAULT_DB.dbUser,
+        dbName: req.body?.dbName || req.query?.dbName || CPANEL_DEFAULT_DB.dbName,
+        dbPass: req.body?.dbPass || req.query?.dbPass || CPANEL_DEFAULT_DB.dbPass,
+        dbHost: req.body?.dbHost || req.query?.dbHost || CPANEL_DEFAULT_DB.dbHost,
+        userEmail: req.body?.userEmail || req.query?.userEmail || CPANEL_DEFAULT_DB.userEmail,
+      };
+
+      let { sqlContent, phpContent, configContent, htaccessContent, readmeContent, htmlGuide } = req.body || {};
+      
+      const exportOptions = {
+        profile: serverData.profile,
+        schedule: serverData.schedule,
+        teachers: serverData.teachers || [],
+        attendanceRecords: serverData.attendanceRecords || [],
+        leaveRequests: serverData.leaveRequests || [],
+        holidays: serverData.holidays || [],
+        ...dbConfig,
+      };
+
+      if (!sqlContent) sqlContent = generateMySQLDumpForCpanel(exportOptions);
+      if (!phpContent) phpContent = generatePHPBackendForCpanel(dbConfig);
+      if (!configContent) configContent = generateDbConfigFileForCpanel(dbConfig);
+      if (!htaccessContent) htaccessContent = generateHtaccessForCpanel();
+      if (!readmeContent) readmeContent = generateReadmeCpanel(exportOptions);
+      if (!htmlGuide) htmlGuide = generateCpanelHtmlGuide(exportOptions);
+
+      const zip = new JSZip();
+
+      // 1. Add SQL Dump for cPanel phpMyAdmin Import
+      zip.file("database.sql", sqlContent);
+
+      // 2. Add PHP API Backend and DB Config
+      zip.file("api.php", phpContent);
+      zip.file("config.php", configContent);
+
+      // 3. Add .htaccess (Apache Routing for cPanel)
+      zip.file(".htaccess", htaccessContent);
+
+      // 4. Add Clear Step-by-Step Documentation & Guide
+      zip.file("README_CPANEL.txt", readmeContent);
+      zip.file("PANDUAN_INSTALASI_CPANEL.html", htmlGuide);
+
+      // 5. Add built dist assets (index.html, assets/*.js, assets/*.css, images, favicons)
+      const distPath = path.join(process.cwd(), "dist");
+      if (fs.existsSync(distPath)) {
+        const addFolderToZip = (dirPath: string, zipFolder: JSZip) => {
+          const items = fs.readdirSync(dirPath);
+          for (const item of items) {
+            const itemPath = path.join(dirPath, item);
+            const stat = fs.statSync(itemPath);
+            if (stat.isDirectory()) {
+              const subFolder = zipFolder.folder(item);
+              if (subFolder) addFolderToZip(itemPath, subFolder);
+            } else {
+              if (!item.endsWith(".cjs") && !item.endsWith(".cjs.map")) {
+                const fileData = fs.readFileSync(itemPath);
+                zipFolder.file(item, fileData);
+              }
+            }
+          }
+        };
+        addFolderToZip(distPath, zip);
+      }
+
+      // 6. Ensure public fallback assets are included if not already in zip
+      const publicPath = path.join(process.cwd(), "public");
+      if (fs.existsSync(publicPath)) {
+        const pubItems = fs.readdirSync(publicPath);
+        for (const pItem of pubItems) {
+          const pPath = path.join(publicPath, pItem);
+          const pStat = fs.statSync(pPath);
+          if (!pStat.isDirectory() && !zip.file(pItem)) {
+            zip.file(pItem, fs.readFileSync(pPath));
+          }
+        }
+      }
+
+      const zipBuffer = await zip.generateAsync({
+        type: "nodebuffer",
+        compression: "DEFLATE",
+        compressionOptions: { level: 9 },
+      });
+
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="SIMPRESENSI_cPanel_MySQL_${dbConfig.dbName}.zip"`);
+      res.send(zipBuffer);
+    } catch (err: any) {
+      console.error("Error generating cPanel zip:", err);
+      res.status(500).json({ error: "Gagal membuat file ZIP cPanel: " + err.message });
+    }
+  });
+
+  // ============================================================
+  // MySQL Live Status & Auto-Sync Management Endpoints
+  // ============================================================
+  app.get("/api/mysql/status", async (_req, res) => {
+    // Optionally perform a quick ping if not recently checked
+    if (Date.now() - mysqlStatus.lastAttempt > 30000) {
+      try {
+        const pool = getMysqlPool();
+        await pool.query("SELECT 1");
+        mysqlStatus.connected = true;
+        mysqlStatus.lastError = null;
+      } catch (e: any) {
+        mysqlStatus.connected = false;
+        mysqlStatus.lastError = e.message;
+      }
+      mysqlStatus.lastAttempt = Date.now();
+    }
+
+    res.json({
+      connected: mysqlStatus.connected,
+      autoSyncEnabled: mysqlStatus.autoSyncEnabled,
+      database: mysqlStatus.database,
+      user: mysqlStatus.user,
+      host: mysqlStatus.host,
+      port: mysqlStatus.port,
+      lastSyncTime: mysqlStatus.lastSyncTime,
+      lastSyncStatus: mysqlStatus.lastSyncStatus,
+      lastError: mysqlStatus.lastError,
+      syncedCount: mysqlStatus.syncedCount,
+      localRecordCount: (serverData.attendanceRecords || []).length,
+      localTeacherCount: (serverData.teachers || []).length,
+    });
+  });
+
+  // Manual Trigger: Sync entire local dataset to MySQL immediately
+  app.post("/api/mysql/sync-all", async (_req, res) => {
+    try {
+      const ok = await syncDataToMySQL(serverData);
+      if (ok) {
+        res.json({
+          success: true,
+          message: "Sinkronisasi seluruh data ke MySQL masbagoes_absensi berhasil!",
+          lastSyncTime: mysqlStatus.lastSyncTime,
+          syncedCount: mysqlStatus.syncedCount,
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: mysqlStatus.lastError || "Gagal melakukan sinkronisasi ke database MySQL",
+        });
+      }
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err.message,
+      });
+    }
+  });
+
+  // Test custom connection parameters
+  app.post("/api/mysql/test-connection", async (req, res) => {
+    try {
+      const { host, port, user, password, database } = req.body;
+      const testPool = mysql.createPool({
+        host: host || currentMysqlConfig.host,
+        port: Number(port) || currentMysqlConfig.port,
+        user: user || currentMysqlConfig.user,
+        password: password || currentMysqlConfig.password,
+        database: database || currentMysqlConfig.database,
+        connectTimeout: 4000,
+      });
+
+      await testPool.query("SELECT 1");
+      await testPool.end();
+
+      res.json({
+        success: true,
+        message: `Koneksi ke database MySQL '${database || currentMysqlConfig.database}' di ${host || currentMysqlConfig.host} berhasil!`,
+      });
+    } catch (err: any) {
+      res.status(400).json({
+        success: false,
+        error: "Gagal terhubung ke MySQL: " + err.message,
+      });
+    }
+  });
+
+  // Update MySQL configuration dynamically
+  app.post("/api/mysql/config", async (req, res) => {
+    try {
+      const { host, port, user, password, database, autoSyncEnabled } = req.body;
+      if (typeof autoSyncEnabled === "boolean") {
+        mysqlStatus.autoSyncEnabled = autoSyncEnabled;
+      }
+      
+      const newConfig = {
+        host: host || currentMysqlConfig.host,
+        port: Number(port) || currentMysqlConfig.port,
+        user: user || currentMysqlConfig.user,
+        password: password !== undefined ? password : currentMysqlConfig.password,
+        database: database || currentMysqlConfig.database,
+        waitForConnections: true,
+        connectionLimit: 10,
+        connectTimeout: 5000,
+      };
+
+      resetMysqlPool(newConfig);
+
+      // Test new connection
+      try {
+        const pool = getMysqlPool();
+        await pool.query("SELECT 1");
+        mysqlStatus.connected = true;
+        mysqlStatus.lastError = null;
+        // Optionally run auto sync
+        if (mysqlStatus.autoSyncEnabled) {
+          syncDataToMySQL(serverData).catch(() => {});
+        }
+      } catch (e: any) {
+        mysqlStatus.connected = false;
+        mysqlStatus.lastError = e.message;
+      }
+
+      res.json({
+        success: true,
+        message: "Konfigurasi koneksi MySQL berhasil diperbarui",
+        status: {
+          connected: mysqlStatus.connected,
+          database: mysqlStatus.database,
+          user: mysqlStatus.user,
+          host: mysqlStatus.host,
+          port: mysqlStatus.port,
+          lastError: mysqlStatus.lastError,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
