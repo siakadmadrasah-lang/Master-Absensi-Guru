@@ -80,6 +80,7 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
     localTeacherCount: number;
   } | null>(null);
 
+  const [cpanelLiveUrl, setCpanelLiveUrl] = useState('');
   const [isSyncingMysql, setIsSyncingMysql] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ success: boolean; message: string } | null>(null);
   const [isTestingMysql, setIsTestingMysql] = useState(false);
@@ -178,6 +179,53 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
     }
   };
 
+  const handleTestCpanelApi = async () => {
+    setIsTestingMysql(true);
+    setTestFeedback(null);
+    try {
+      if (cpanelLiveUrl.trim()) {
+        const res = await fetch('/api/mysql/test-connection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cpanelUrl: cpanelLiveUrl.trim(),
+            database: CPANEL_DEFAULT_DB.name,
+            user: CPANEL_DEFAULT_DB.user,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setTestFeedback({ success: true, message: data.message });
+          await fetchMysqlStatus();
+        } else {
+          setTestFeedback({ success: false, message: data.error || 'Endpoint API cPanel live gagal dihubungi.' });
+        }
+      } else {
+        const res = await fetch('/api.php?action=test_db', {
+          headers: { Accept: 'application/json' },
+        });
+        const data = await res.json();
+        if (res.ok && (data.success || data.status === 'ok')) {
+          setTestFeedback({
+            success: true,
+            message: data.message || `Endpoint API cPanel & Database MySQL (${data.database || CPANEL_DEFAULT_DB.name}) DITEMUKAN & BERHASIL!`,
+          });
+          await fetchMysqlStatus();
+        } else {
+          setTestFeedback({
+            success: false,
+            message: data.message || data.error || 'Endpoint API cPanel tidak ditemukan.',
+          });
+        }
+      }
+    } catch (err: any) {
+      setTestFeedback({ success: false, message: 'Gagal memanggil API cPanel: ' + err.message });
+    } finally {
+      setIsTestingMysql(false);
+      setTimeout(() => setTestFeedback(null), 8000);
+    }
+  };
+
   const handleTestConnection = async () => {
     setIsTestingMysql(true);
     setTestFeedback(null);
@@ -190,6 +238,7 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
           user: CPANEL_DEFAULT_DB.user,
           password: CPANEL_DEFAULT_DB.pass,
           database: CPANEL_DEFAULT_DB.name,
+          cpanelUrl: cpanelLiveUrl.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -203,7 +252,7 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
       setTestFeedback({ success: false, message: 'Gagal tes koneksi: ' + err.message });
     } finally {
       setIsTestingMysql(false);
-      setTimeout(() => setTestFeedback(null), 6000);
+      setTimeout(() => setTestFeedback(null), 8000);
     }
   };
 
@@ -514,12 +563,24 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
+                      onClick={handleTestCpanelApi}
+                      disabled={isTestingMysql}
+                      className="px-2.5 py-1 bg-sky-950 hover:bg-sky-900 text-sky-200 border border-sky-600/40 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="Uji Endpoint REST API cPanel (/api.php)"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-sky-400" />
+                      <span>{isTestingMysql ? 'Menguji...' : 'Uji API cPanel'}</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={handleTestConnection}
                       disabled={isTestingMysql}
                       className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="Uji Koneksi Database MySQL"
                     >
-                      <Database className="w-3.5 h-3.5 text-sky-400" />
-                      <span>{isTestingMysql ? 'Menguji...' : 'Uji Koneksi'}</span>
+                      <Database className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{isTestingMysql ? 'Menguji...' : 'Uji Database'}</span>
                     </button>
 
                     <button
@@ -532,6 +593,37 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
                       <span>{isSyncingMysql ? 'Menyinkronkan...' : 'Sinkronkan Sekarang'}</span>
                     </button>
                   </div>
+                </div>
+
+                {/* cPanel Live URL Input (Optional) */}
+                <div className="p-3 bg-slate-900/90 rounded-lg border border-slate-800/80 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                    <label className="text-[11px] text-slate-300 font-medium flex items-center gap-1">
+                      <Globe className="w-3.5 h-3.5 text-sky-400" />
+                      <span>URL Endpoint API cPanel (opsional untuk live domain cPanel Anda):</span>
+                    </label>
+                    <a
+                      href="/api.php"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-sky-400 hover:text-sky-300 underline font-mono flex items-center gap-1 shrink-0"
+                    >
+                      <span>Lihat Status /api.php</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="url"
+                      value={cpanelLiveUrl}
+                      onChange={(e) => setCpanelLiveUrl(e.target.value)}
+                      placeholder="https://absensi.domain-madrasah.sch.id/api.php (kosongkan untuk uji internal)"
+                      className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    💡 <strong className="text-slate-300">Catatan:</strong> Bila dikosongkan, tombol <em>"Uji API cPanel"</em> akan menguji endpoint internal <code className="text-sky-300">/api.php</code>. Jika diisi domain cPanel Anda, sistem akan langsung memverifikasi live API pada hosting cPanel Anda.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
