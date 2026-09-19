@@ -1018,15 +1018,36 @@ async function startServer() {
     }
   });
 
-  // POST /api/teachers - Directly save/update GTK records
+  // POST /api/teachers - Directly save/update GTK records with safe merge
   app.post("/api/teachers", (req, res) => {
     try {
-      const { teachers } = req.body;
+      const { teachers, overwrite } = req.body;
       if (!Array.isArray(teachers)) {
         res.status(400).json({ error: "Format daftar guru harus berupa array" });
         return;
       }
-      serverData.teachers = teachers;
+      if (overwrite === true) {
+        // Ensure super-admin is always kept
+        const hasSuperAdmin = teachers.some((t: any) => t.id === 'super-admin-jaenal');
+        if (!hasSuperAdmin) {
+          const oldAdmin = (serverData.teachers || []).find((t: any) => t.id === 'super-admin-jaenal');
+          if (oldAdmin) teachers.unshift(oldAdmin);
+        }
+        serverData.teachers = teachers;
+      } else {
+        // Safe non-destructive merge: preserve existing teachers and update/insert incoming ones
+        const map = new Map<string, any>();
+        (serverData.teachers || []).forEach((t: any) => {
+          if (t && t.id) map.set(t.id, t);
+        });
+        teachers.forEach((t: any) => {
+          if (t && t.id) {
+            const existing = map.get(t.id);
+            map.set(t.id, existing ? { ...existing, ...t } : t);
+          }
+        });
+        serverData.teachers = Array.from(map.values());
+      }
       serverData.version = (serverData.version || 1) + 1;
       serverData.lastUpdated = Date.now();
       saveDatabase(serverData);
@@ -1097,21 +1118,95 @@ async function startServer() {
         return;
       }
 
-      // Merge payload into serverData
+      // Aman: Lakukan penggabungan cerdas (Merge) sehingga timpa tidak menghilangkan data yang sudah ada
       const updatedData = {
         ...serverData,
-        ...payload,
         version: (serverData.version || 1) + 1,
         lastUpdated: Date.now(),
       };
 
-      // Ensure lists are valid arrays
-      if (Array.isArray(payload.teachers)) updatedData.teachers = payload.teachers;
-      if (Array.isArray(payload.attendanceRecords)) updatedData.attendanceRecords = payload.attendanceRecords;
-      if (Array.isArray(payload.leaveRequests)) updatedData.leaveRequests = payload.leaveRequests;
-      if (Array.isArray(payload.holidays)) updatedData.holidays = payload.holidays;
-      if (payload.profile) updatedData.profile = payload.profile;
-      if (payload.schedule) updatedData.schedule = payload.schedule;
+      // 1. Teachers: Gabungkan guru baru/update tanpa menghapus guru lama di server
+      if (Array.isArray(payload.teachers) && payload.teachers.length > 0) {
+        const teacherMap = new Map<string, any>();
+        (serverData.teachers || []).forEach((t: any) => {
+          if (t && t.id) teacherMap.set(t.id, t);
+        });
+        payload.teachers.forEach((t: any) => {
+          if (t && t.id) {
+            const existing = teacherMap.get(t.id);
+            teacherMap.set(t.id, existing ? { ...existing, ...t } : t);
+          }
+        });
+        updatedData.teachers = Array.from(teacherMap.values());
+      } else if (serverData.teachers) {
+        updatedData.teachers = serverData.teachers;
+      }
+
+      // 2. Attendance Records: Gabungkan riwayat presensi, jangan pernah menghapus rekap kehadiran lama
+      if (Array.isArray(payload.attendanceRecords) && payload.attendanceRecords.length > 0) {
+        const attMap = new Map<string, any>();
+        (serverData.attendanceRecords || []).forEach((r: any) => {
+          if (r) {
+            const key = r.id || `${r.teacherId}_${r.date}`;
+            attMap.set(key, r);
+          }
+        });
+        payload.attendanceRecords.forEach((r: any) => {
+          if (r) {
+            const key = r.id || `${r.teacherId}_${r.date}`;
+            const existing = attMap.get(key);
+            attMap.set(key, existing ? { ...existing, ...r } : r);
+          }
+        });
+        updatedData.attendanceRecords = Array.from(attMap.values()).sort((a: any, b: any) =>
+          (b.date || "").localeCompare(a.date || "")
+        );
+      } else if (serverData.attendanceRecords) {
+        updatedData.attendanceRecords = serverData.attendanceRecords;
+      }
+
+      // 3. Leave Requests: Gabungkan izin/cuti
+      if (Array.isArray(payload.leaveRequests) && payload.leaveRequests.length > 0) {
+        const leaveMap = new Map<string, any>();
+        (serverData.leaveRequests || []).forEach((l: any) => {
+          if (l && l.id) leaveMap.set(l.id, l);
+        });
+        payload.leaveRequests.forEach((l: any) => {
+          if (l && l.id) {
+            const existing = leaveMap.get(l.id);
+            leaveMap.set(l.id, existing ? { ...existing, ...l } : l);
+          }
+        });
+        updatedData.leaveRequests = Array.from(leaveMap.values());
+      } else if (serverData.leaveRequests) {
+        updatedData.leaveRequests = serverData.leaveRequests;
+      }
+
+      // 4. Holidays: Gabungkan hari libur
+      if (Array.isArray(payload.holidays) && payload.holidays.length > 0) {
+        const holMap = new Map<string, any>();
+        (serverData.holidays || []).forEach((h: any) => {
+          if (h) holMap.set(h.id || h.date, h);
+        });
+        payload.holidays.forEach((h: any) => {
+          if (h) {
+            const key = h.id || h.date;
+            const existing = holMap.get(key);
+            holMap.set(key, existing ? { ...existing, ...h } : h);
+          }
+        });
+        updatedData.holidays = Array.from(holMap.values());
+      } else if (serverData.holidays) {
+        updatedData.holidays = serverData.holidays;
+      }
+
+      // 5. Profile & Schedule: Gabungkan atribut tanpa menghilangkan field yang sudah diisi
+      if (payload.profile && typeof payload.profile === "object") {
+        updatedData.profile = { ...(serverData.profile || {}), ...payload.profile };
+      }
+      if (payload.schedule && typeof payload.schedule === "object") {
+        updatedData.schedule = { ...(serverData.schedule || {}), ...payload.schedule };
+      }
 
       serverData = updatedData;
       saveDatabase(serverData);

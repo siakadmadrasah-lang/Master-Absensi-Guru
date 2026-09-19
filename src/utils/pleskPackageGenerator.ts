@@ -35,10 +35,9 @@ SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 SET time_zone = "+07:00";
 
 -- ------------------------------------------------------------
--- Table structure for \`madrasah_profile\`
+-- Table structure for \`madrasah_profile\` (Aman Ditimpa: Data Lama Tetap Terjaga)
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS \`madrasah_profile\`;
-CREATE TABLE \`madrasah_profile\` (
+CREATE TABLE IF NOT EXISTS \`madrasah_profile\` (
   \`id\` int(11) NOT NULL AUTO_INCREMENT,
   \`name\` varchar(255) NOT NULL,
   \`nsm\` varchar(50) DEFAULT NULL,
@@ -69,8 +68,7 @@ CREATE TABLE \`madrasah_profile\` (
 -- ------------------------------------------------------------
 -- Table structure for \`work_schedules\`
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS \`work_schedules\`;
-CREATE TABLE \`work_schedules\` (
+CREATE TABLE IF NOT EXISTS \`work_schedules\` (
   \`id\` int(11) NOT NULL AUTO_INCREMENT,
   \`workDaysCount\` int(11) DEFAULT 6,
   \`toleranceMinutes\` int(11) DEFAULT 5,
@@ -82,8 +80,7 @@ CREATE TABLE \`work_schedules\` (
 -- ------------------------------------------------------------
 -- Table structure for \`teachers\` (Guru & Tenaga Kependidikan)
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS \`teachers\`;
-CREATE TABLE \`teachers\` (
+CREATE TABLE IF NOT EXISTS \`teachers\` (
   \`id\` varchar(64) NOT NULL,
   \`fingerprintId\` int(11) NOT NULL,
   \`nik\` varchar(20) NOT NULL,
@@ -112,8 +109,7 @@ CREATE TABLE \`teachers\` (
 -- ------------------------------------------------------------
 -- Table structure for \`attendance_records\`
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS \`attendance_records\`;
-CREATE TABLE \`attendance_records\` (
+CREATE TABLE IF NOT EXISTS \`attendance_records\` (
   \`id\` varchar(64) NOT NULL,
   \`teacherId\` varchar(64) NOT NULL,
   \`date\` date NOT NULL,
@@ -135,8 +131,7 @@ CREATE TABLE \`attendance_records\` (
 -- ------------------------------------------------------------
 -- Table structure for \`leave_requests\`
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS \`leave_requests\`;
-CREATE TABLE \`leave_requests\` (
+CREATE TABLE IF NOT EXISTS \`leave_requests\` (
   \`id\` varchar(64) NOT NULL,
   \`teacherId\` varchar(64) NOT NULL,
   \`type\` varchar(50) NOT NULL,
@@ -154,8 +149,7 @@ CREATE TABLE \`leave_requests\` (
 -- ------------------------------------------------------------
 -- Table structure for \`holidays\`
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS \`holidays\`;
-CREATE TABLE \`holidays\` (
+CREATE TABLE IF NOT EXISTS \`holidays\` (
   \`id\` varchar(64) NOT NULL,
   \`date\` date NOT NULL,
   \`name\` varchar(255) NOT NULL,
@@ -167,8 +161,7 @@ CREATE TABLE \`holidays\` (
 -- ------------------------------------------------------------
 -- Table structure for \`machine_logs\` (Raw Fingerprint Log)
 -- ------------------------------------------------------------
-DROP TABLE IF EXISTS \`machine_logs\`;
-CREATE TABLE \`machine_logs\` (
+CREATE TABLE IF NOT EXISTS \`machine_logs\` (
   \`id\` int(11) NOT NULL AUTO_INCREMENT,
   \`pin_or_finger_id\` varchar(50) NOT NULL,
   \`timestamp\` datetime NOT NULL,
@@ -181,21 +174,19 @@ CREATE TABLE \`machine_logs\` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------
--- SEED DATA
+-- SEED DATA (INSERT IGNORE: Menjaga data lama tidak terhapus)
 -- ------------------------------------------------------------
 
--- 1. Madrasah Profile
-INSERT INTO \`madrasah_profile\` (\`id\`, \`name\`, \`nsm\`, \`npsn\`, \`level\`, \`status\`, \`address\`, \`village\`, \`district\`, \`regency\`, \`province\`, \`postalCode\`, \`phone\`, \`email\`, \`website\`, \`headmasterName\`, \`headmasterNip\`, \`operatorName\`, \`raw_json\`)
-VALUES (1, ${escapeSql(profile.name)}, ${escapeSql(profile.nsm)}, ${escapeSql(profile.npsn)}, ${escapeSql(profile.level)}, ${escapeSql(profile.status)}, ${escapeSql(profile.address)}, ${escapeSql(profile.village)}, ${escapeSql(profile.district)}, ${escapeSql(profile.city)}, ${escapeSql(profile.province)}, ${escapeSql(profile.postalCode)}, ${escapeSql(profile.phone)}, ${escapeSql(profile.email)}, ${escapeSql(profile.website)}, ${escapeSql(profile.headmasterName || '')}, ${escapeSql(profile.headmasterNip || '-')}, 'Jaenal Maskun', ${escapeSql(JSON.stringify(profile))})
-ON DUPLICATE KEY UPDATE \`name\` = VALUES(\`name\`), \`headmasterName\` = VALUES(\`headmasterName\`);
+-- 1. Madrasah Profile (Tidak menimpa jika sudah ada)
+INSERT IGNORE INTO \`madrasah_profile\` (\`id\`, \`name\`, \`nsm\`, \`npsn\`, \`level\`, \`status\`, \`address\`, \`village\`, \`district\`, \`regency\`, \`province\`, \`postalCode\`, \`phone\`, \`email\`, \`website\`, \`headmasterName\`, \`headmasterNip\`, \`operatorName\`, \`raw_json\`)
+VALUES (1, ${escapeSql(profile.name)}, ${escapeSql(profile.nsm)}, ${escapeSql(profile.npsn)}, ${escapeSql(profile.level)}, ${escapeSql(profile.status)}, ${escapeSql(profile.address)}, ${escapeSql(profile.village)}, ${escapeSql(profile.district)}, ${escapeSql(profile.city)}, ${escapeSql(profile.province)}, ${escapeSql(profile.postalCode)}, ${escapeSql(profile.phone)}, ${escapeSql(profile.email)}, ${escapeSql(profile.website)}, ${escapeSql(profile.headmasterName || '')}, ${escapeSql(profile.headmasterNip || '-')}, 'Jaenal Maskun', ${escapeSql(JSON.stringify(profile))});
 
 -- 2. Work Schedule
-INSERT INTO \`work_schedules\` (\`id\`, \`workDaysCount\`,\`toleranceMinutes\`, \`raw_json\`)
-VALUES (1, ${schedule.workDaysCount || 6}, ${schedule.toleranceMinutes || 5}, ${escapeSql(JSON.stringify(schedule))})
-ON DUPLICATE KEY UPDATE \`toleranceMinutes\` = VALUES(\`toleranceMinutes\`);
+INSERT IGNORE INTO \`work_schedules\` (\`id\`, \`workDaysCount\`,\`toleranceMinutes\`, \`raw_json\`)
+VALUES (1, ${schedule.workDaysCount || 6}, ${schedule.toleranceMinutes || 5}, ${escapeSql(JSON.stringify(schedule))});
 
 -- 3. Super Admin User & GTK
-INSERT INTO \`teachers\` (\`id\`, \`fingerprintId\`, \`nik\`, \`nip\`, \`nuptk\`, \`pegId\`, \`name\`, \`title\`, \`position\`, \`employmentStatus\`, \`role\`, \`pin\`, \`gender\`, \`phone\`, \`email\`, \`teachingHoursPerWeek\`, \`isBiometricEnrolled\`, \`avatarColor\`, \`isActive\`)
+INSERT IGNORE INTO \`teachers\` (\`id\`, \`fingerprintId\`, \`nik\`, \`nip\`, \`nuptk\`, \`pegId\`, \`name\`, \`title\`, \`position\`, \`employmentStatus\`, \`role\`, \`pin\`, \`gender\`, \`phone\`, \`email\`, \`teachingHoursPerWeek\`, \`isBiometricEnrolled\`, \`avatarColor\`, \`isActive\`)
 VALUES 
 ('super-admin-jaenal', 999, '3302010000009999', '-', '-', '-', 'Jaenal Maskun', 'S.Pd.I.', 'Super Administrator SIMPRESENSI', 'TENAGA_KEPENDIDIKAN', 'ADMIN', 'masbagus', 'L', '081234567890', 'jaenalmaskun@gmail.com', 0, 1, 'bg-emerald-800', 1)
 `;
@@ -209,13 +200,13 @@ VALUES
     }
   }
 
-  sql += `\nON DUPLICATE KEY UPDATE \`name\` = VALUES(\`name\`), \`pin\` = VALUES(\`pin\`), \`role\` = VALUES(\`role\`);\n\n`;
+  sql += `;\n\n`;
 
   // 4. Holidays
   if (holidays && holidays.length > 0) {
-    sql += `-- 4. Holidays\nINSERT INTO \`holidays\` (\`id\`, \`date\`, \`name\`, \`type\`) VALUES\n`;
+    sql += `-- 4. Holidays\nINSERT IGNORE INTO \`holidays\` (\`id\`, \`date\`, \`name\`, \`type\`) VALUES\n`;
     sql += holidays.map(h => `(${escapeSql(h.id)}, ${escapeSql(h.date)}, ${escapeSql(h.name)}, ${escapeSql(h.type || 'NASIONAL')})`).join(',\n');
-    sql += `\nON DUPLICATE KEY UPDATE \`name\` = VALUES(\`name\`);\n\n`;
+    sql += `;\n\n`;
   }
 
   sql += `SET FOREIGN_KEY_CHECKS = 1;\n`;
@@ -417,15 +408,7 @@ switch ($action) {
                     if (!empty($t['id'])) $validIds[] = $t['id'];
                 }
 
-                // Delete teachers from DB that are no longer in the list (except super admin)
-                if (!empty($validIds)) {
-                    $placeholders = implode(',', array_fill(0, count($validIds), '?'));
-                    $delStmt = $pdo->prepare("DELETE FROM teachers WHERE id NOT IN ($placeholders) AND id != 'super-admin-jaenal'");
-                    $delStmt->execute($validIds);
-                } else {
-                    $pdo->exec("DELETE FROM teachers WHERE id != 'super-admin-jaenal'");
-                }
-
+                // Aman: Hanya lakukan Upsert (INSERT/UPDATE), jangan pernah hapus data guru lama saat timpa
                 $tSql = "INSERT INTO teachers (id, fingerprintId, nik, nip, nuptk, pegId, name, title, position, employmentStatus, role, pin, gender, phone, email, teachingHoursPerWeek, isBiometricEnrolled, avatarColor, isActive)
                          VALUES (:id, :fingerprintId, :nik, :nip, :nuptk, :pegId, :name, :title, :position, :employmentStatus, :role, :pin, :gender, :phone, :email, :teachingHoursPerWeek, :isBiometricEnrolled, :avatarColor, :isActive)
                          ON DUPLICATE KEY UPDATE 
@@ -600,14 +583,7 @@ switch ($action) {
                     if (!empty($t['id'])) $validIds[] = $t['id'];
                 }
 
-                if (!empty($validIds)) {
-                    $placeholders = implode(',', array_fill(0, count($validIds), '?'));
-                    $delStmt = $pdo->prepare("DELETE FROM teachers WHERE id NOT IN ($placeholders) AND id != 'super-admin-jaenal'");
-                    $delStmt->execute($validIds);
-                } else {
-                    $pdo->exec("DELETE FROM teachers WHERE id != 'super-admin-jaenal'");
-                }
-
+                // Aman: Hanya lakukan Upsert (INSERT/UPDATE), tidak menghapus guru lama
                 $tSql = "INSERT INTO teachers (id, fingerprintId, nik, nip, nuptk, pegId, name, title, position, employmentStatus, role, pin, gender, phone, email, teachingHoursPerWeek, isBiometricEnrolled, avatarColor, isActive)
                          VALUES (:id, :fingerprintId, :nik, :nip, :nuptk, :pegId, :name, :title, :position, :employmentStatus, :role, :pin, :gender, :phone, :email, :teachingHoursPerWeek, :isBiometricEnrolled, :avatarColor, :isActive)
                          ON DUPLICATE KEY UPDATE 

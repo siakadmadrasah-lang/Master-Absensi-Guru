@@ -638,29 +638,38 @@ export default function App() {
     } catch (e) {}
   };
 
-  const handleBatchImportTeachers = (importedTeachers: Teacher[], mode: 'append' | 'replace') => {
-    if (mode === 'replace') {
-      setTeachers(importedTeachers);
-      pushToServer({ teachers: importedTeachers });
-    } else {
-      setTeachers(prev => {
-        const merged = [...prev];
-        importedTeachers.forEach(newT => {
-          const existingIdx = merged.findIndex(
-            t => (newT.nik && t.nik === newT.nik) ||
-                 (newT.fingerprintId && t.fingerprintId === newT.fingerprintId) ||
-                 (t.name.toLowerCase().trim() === newT.name.toLowerCase().trim())
-          );
-          if (existingIdx >= 0) {
-            merged[existingIdx] = { ...merged[existingIdx], ...newT };
-          } else {
-            merged.push(newT);
-          }
-        });
-        pushToServer({ teachers: merged });
-        return merged;
+  const handleBatchImportTeachers = (importedTeachers: Teacher[], _mode: 'append' | 'replace') => {
+    // Permintaan user: "Terapkan agar timpa tidak menghilangkan data yang sudah ada"
+    // Baik mode 'append' maupun 'replace' (timpa), lakukan smart upsert:
+    // Menimpa/memperbarui data guru yang cocok, menambahkan guru baru, dan tetap menjaga guru lama yang sudah ada.
+    setTeachers(prev => {
+      const merged = [...prev];
+      importedTeachers.forEach(newT => {
+        const existingIdx = merged.findIndex(
+          t => (newT.id && t.id === newT.id) ||
+               (newT.nik && t.nik === newT.nik) ||
+               (newT.fingerprintId && t.fingerprintId === newT.fingerprintId) ||
+               (t.name.toLowerCase().trim() === newT.name.toLowerCase().trim())
+        );
+        if (existingIdx >= 0) {
+          // Timpa nilai atribut yang cocok tanpa menghapus identitas atau relasi data lama
+          merged[existingIdx] = { ...merged[existingIdx], ...newT };
+        } else {
+          merged.push(newT);
+        }
       });
-    }
+
+      // Pastikan akun super administrator Jaenal Maskun selalu terjaga
+      const hasSuperAdmin = merged.some(t => t.id === 'super-admin-jaenal');
+      if (!hasSuperAdmin) {
+        const oldAdmin = prev.find(t => t.id === 'super-admin-jaenal');
+        if (oldAdmin) merged.unshift(oldAdmin);
+      }
+
+      localStorage.setItem('simpresensi_teachers', JSON.stringify(merged));
+      pushToServer({ teachers: merged });
+      return merged;
+    });
   };
 
   const handleAddLeaveRequest = (newLeave: LeaveRequest) => {

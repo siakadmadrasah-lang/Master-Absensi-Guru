@@ -176,14 +176,12 @@ export const DataGuru: React.FC<DataGuruProps> = ({
     if (onBatchImportTeachers) {
       onBatchImportTeachers(parsedGTKResult.teachers, importMode);
     } else {
-      if (importMode === 'replace' && onClearAllTeachers) {
-        onClearAllTeachers();
-      }
+      // Aman: Timpa tidak menghapus data yang sudah ada
       parsedGTKResult.teachers.forEach((t) => onAddTeacher(t));
     }
 
     setUploadSuccessMessage(
-      `Sukses mengimpor ${parsedGTKResult.teachers.length} data Guru & GTK (${importMode === 'replace' ? 'Gantikan Semua' : 'Gabungkan & Perbarui'})!`
+      `Sukses memproses ${parsedGTKResult.teachers.length} data Guru & GTK! Data lama tetap terjaga aman.`
     );
     setIsUploadModalOpen(false);
     setParsedGTKResult(null);
@@ -1442,7 +1440,7 @@ export const DataGuru: React.FC<DataGuruProps> = ({
                           <label
                             className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 transition-all ${
                               importMode === 'replace'
-                                ? 'bg-rose-50/80 border-rose-500 ring-2 ring-rose-500/20'
+                                ? 'bg-amber-50/80 border-amber-500 ring-2 ring-amber-500/20'
                                 : 'bg-white border-zinc-200 hover:border-zinc-300'
                             }`}
                           >
@@ -1452,12 +1450,12 @@ export const DataGuru: React.FC<DataGuruProps> = ({
                               value="replace"
                               checked={importMode === 'replace'}
                               onChange={() => setImportMode('replace')}
-                              className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                              className="mt-0.5 text-amber-600 focus:ring-amber-500"
                             />
                             <div>
-                              <div className="font-bold text-rose-950">Gantikan Seluruh Data GTK</div>
-                              <p className="text-[11px] text-rose-700 mt-0.5">
-                                Menghapus semua daftar guru saat ini dan menggantinya penuh dengan data dari berkas Excel ini.
+                              <div className="font-bold text-amber-950">Timpa & Perbarui (Aman: Data Lama Tidak Hilang)</div>
+                              <p className="text-[11px] text-amber-800 mt-0.5">
+                                Menimpa nilai atribut guru yang cocok dan menyisipkan data baru, tanpa menghapus guru maupun riwayat presensi yang sudah ada.
                               </p>
                             </div>
                           </label>
