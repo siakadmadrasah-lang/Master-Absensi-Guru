@@ -884,6 +884,9 @@ export function generateIndexPhpForCpanel(options: CpanelExportOptions): string 
 // ============================================================
 // SIMPRESENSI MADRASAH - DYNAMIC SSR OPEN GRAPH & ENTRY POINT (cPanel MySQL)
 // ============================================================
+error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING & ~E_DEPRECATED);
+ini_set('display_errors', '0');
+
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 header('Pragma: no-cache');
@@ -922,53 +925,50 @@ try {
     // Abaikan jika database belum siap, fallback aman ke nama madrasah default
 }
 
-// Dynamically locate compiled JS and CSS with highest mtime / from index.html
+// Dynamically locate compiled JS and CSS with highest mtime
 $latestJs = '';
 $latestCss = '';
-
-// 1. Try reading the exact bundle hashes from index.html if present
-$indexHtmlPath = __DIR__ . '/index.html';
-if (file_exists($indexHtmlPath)) {
-    $htmlContent = file_get_contents($indexHtmlPath);
-    if (preg_match('/<script[^>]+src=["\']\.?\/assets\/(index-[^"\']+\.js)["\']/', $htmlContent, $m)) {
-        $latestJs = $m[1];
-    }
-    if (preg_match('/<link[^>]+href=["\']\.?\/assets\/(index-[^"\']+\.css)["\']/', $htmlContent, $m)) {
-        $latestCss = $m[1];
-    }
-}
-
-// 2. Fallback or scan assets directory to always pick the newest file by filemtime (prevents loading stale cached bundles)
 $assetsDir = __DIR__ . '/assets';
-if (is_dir($assetsDir)) {
-    $files = scandir($assetsDir);
-    $newestJsMtime = 0;
-    $newestCssMtime = 0;
-    foreach ($files as $f) {
-        $full = $assetsDir . '/' . $f;
-        if (!is_file($full)) continue;
-        $mtime = filemtime($full);
-        if (preg_match('/^index-.*\\.js$/', $f)) {
-            if ($mtime > $newestJsMtime || empty($latestJs)) {
-                $latestJs = $f;
-                $newestJsMtime = $mtime;
-            }
-        } else if (preg_match('/^index-.*\\.css$/', $f)) {
-            if ($mtime > $newestCssMtime || empty($latestCss)) {
-                $latestCss = $f;
-                $newestCssMtime = $mtime;
+
+try {
+    if (is_dir($assetsDir)) {
+        $files = @scandir($assetsDir);
+        if (is_array($files)) {
+            $newestJsMtime = 0;
+            $newestCssMtime = 0;
+            foreach ($files as $f) {
+                if ($f === '.' || $f === '..') continue;
+                $fullPath = $assetsDir . '/' . $f;
+                if (!is_file($fullPath)) continue;
+                $mtime = (int)@filemtime($fullPath);
+                
+                // Cek file JS bundle utama (dimulai index- dan berakhiran .js)
+                if (substr($f, 0, 6) === 'index-' && substr($f, -3) === '.js') {
+                    if ($mtime >= $newestJsMtime) {
+                        $latestJs = $f;
+                        $newestJsMtime = $mtime;
+                    }
+                } 
+                // Cek file CSS bundle utama (dimulai index- dan berakhiran .css)
+                else if (substr($f, 0, 6) === 'index-' && substr($f, -4) === '.css') {
+                    if ($mtime >= $newestCssMtime) {
+                        $latestCss = $f;
+                        $newestCssMtime = $mtime;
+                    }
+                }
             }
         }
     }
+} catch (Throwable $e) {
+    // Fail-safe aman
 }
 
-// 3. Construct tag with anti-cache timestamp parameter
-$jsMtime = (!empty($latestJs) && file_exists($assetsDir . '/' . $latestJs)) ? filemtime($assetsDir . '/' . $latestJs) : time();
-$cssMtime = (!empty($latestCss) && file_exists($assetsDir . '/' . $latestCss)) ? filemtime($assetsDir . '/' . $latestCss) : time();
+$jsMtime = (!empty($latestJs) && file_exists($assetsDir . '/' . $latestJs)) ? (int)@filemtime($assetsDir . '/' . $latestJs) : time();
+$cssMtime = (!empty($latestCss) && file_exists($assetsDir . '/' . $latestCss)) ? (int)@filemtime($assetsDir . '/' . $latestCss) : time();
 
 $jsScriptTag = !empty($latestJs) 
     ? '<script type="module" crossorigin src="./assets/' . htmlspecialchars($latestJs) . '?v=' . $jsMtime . '"></script>' 
-    : '<script type="module" crossorigin src="./assets/index.js?v=' . time() . '"></script>';
+    : '<script type="module" crossorigin src="./assets/index.js"></script>';
 
 $cssLinkTag = !empty($latestCss) 
     ? '<link rel="stylesheet" crossorigin href="./assets/' . htmlspecialchars($latestCss) . '?v=' . $cssMtime . '">' 
