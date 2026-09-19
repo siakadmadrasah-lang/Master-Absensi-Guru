@@ -1262,6 +1262,15 @@ async function startServer() {
     if (needsBuild) {
       console.log("[BUILD] Source files updated or dist incomplete. Running vite build...");
       try {
+        const assetsDir = path.join(distPath, "assets");
+        if (fs.existsSync(assetsDir)) {
+          const oldFiles = fs.readdirSync(assetsDir);
+          for (const f of oldFiles) {
+            if (f.startsWith("index-") || f.startsWith("vendor-")) {
+              try { fs.unlinkSync(path.join(assetsDir, f)); } catch(e){}
+            }
+          }
+        }
         execSync("npx vite build", { stdio: "inherit" });
         console.log("[BUILD] vite build completed successfully.");
       } catch (e: any) {

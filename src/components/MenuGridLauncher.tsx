@@ -16,7 +16,8 @@ import {
   ChevronDown, 
   ChevronUp,
   Radio,
-  Zap
+  Zap,
+  LogOut
 } from 'lucide-react';
 import { Teacher, MadrasahProfile, AttendanceRecord, LeaveRequest } from '../types';
 
@@ -37,6 +38,7 @@ interface MenuGridLauncherProps {
   };
   serverSyncStatus?: 'synced' | 'syncing' | 'offline';
   onManualSync?: () => void;
+  onLogout?: () => void;
 }
 
 export const MenuGridLauncher: React.FC<MenuGridLauncherProps> = ({
@@ -50,6 +52,7 @@ export const MenuGridLauncher: React.FC<MenuGridLauncherProps> = ({
   todayStats,
   serverSyncStatus = 'synced',
   onManualSync,
+  onLogout,
 }) => {
   const isGuru = currentUser?.role === 'GURU';
   const isKepalaMadrasah = currentUser?.role === 'KEPALA_MADRASAH';
@@ -254,6 +257,18 @@ export const MenuGridLauncher: React.FC<MenuGridLauncherProps> = ({
             <span>{isExpanded ? 'Tutup Grid' : 'Buka Grid'}</span>
             {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
+
+          {/* Explicit Logout Button (Mudah diakses di Android/Mobile) */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              title="Keluar dari akun ini & kembali ke halaman Login NIK/PIN"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border border-rose-200 transition cursor-pointer shadow-2xs"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-600" />
+              <span>Keluar</span>
+            </button>
+          )}
         </div>
       </div>
 

@@ -816,6 +816,18 @@ export default function App() {
     });
   };
 
+  const handleLogout = () => {
+    try {
+      localStorage.removeItem('simpresensi_current_user');
+      sessionStorage.removeItem('simpresensi_current_user');
+    } catch (e) {
+      console.warn('Gagal menghapus sesi login:', e);
+    }
+    setCurrentUser(null);
+    setActiveTab('launcher');
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [activeTab, currentUser]);
@@ -859,7 +871,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         profile={profile}
         currentUser={currentUser}
-        onLogout={() => setCurrentUser(null)}
+        onLogout={handleLogout}
         onOpenPleskExport={() => setIsPleskModalOpen(true)}
         todayStats={displayStats}
       />
@@ -890,6 +902,7 @@ export default function App() {
           leaveRequests={visibleLeaveRequests}
           serverSyncStatus={serverSyncStatus}
           onManualSync={() => pushToServer()}
+          onLogout={handleLogout}
           todayStats={displayStats}
         />
 

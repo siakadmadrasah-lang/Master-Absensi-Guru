@@ -904,20 +904,57 @@ try {
     // Abaikan jika database belum siap, fallback aman ke nama madrasah default
 }
 
-// Dynamically locate compiled JS and CSS in ./assets/
-$jsScriptTag = '';
-$cssLinkTag = '';
+// Dynamically locate compiled JS and CSS with highest mtime / from index.html
+$latestJs = '';
+$latestCss = '';
+
+// 1. Try reading the exact bundle hashes from index.html if present
+$indexHtmlPath = __DIR__ . '/index.html';
+if (file_exists($indexHtmlPath)) {
+    $htmlContent = file_get_contents($indexHtmlPath);
+    if (preg_match('/<script[^>]+src=["\']\.?\/assets\/(index-[^"\']+\.js)["\']/', $htmlContent, $m)) {
+        $latestJs = $m[1];
+    }
+    if (preg_match('/<link[^>]+href=["\']\.?\/assets\/(index-[^"\']+\.css)["\']/', $htmlContent, $m)) {
+        $latestCss = $m[1];
+    }
+}
+
+// 2. Fallback or scan assets directory to always pick the newest file by filemtime (prevents loading stale cached bundles)
 $assetsDir = __DIR__ . '/assets';
 if (is_dir($assetsDir)) {
     $files = scandir($assetsDir);
+    $newestJsMtime = 0;
+    $newestCssMtime = 0;
     foreach ($files as $f) {
+        $full = $assetsDir . '/' . $f;
+        if (!is_file($full)) continue;
+        $mtime = filemtime($full);
         if (preg_match('/^index-.*\\.js$/', $f)) {
-            $jsScriptTag = '<script type="module" crossorigin src="./assets/' . htmlspecialchars($f) . '"></script>';
+            if ($mtime > $newestJsMtime || empty($latestJs)) {
+                $latestJs = $f;
+                $newestJsMtime = $mtime;
+            }
         } else if (preg_match('/^index-.*\\.css$/', $f)) {
-            $cssLinkTag = '<link rel="stylesheet" crossorigin href="./assets/' . htmlspecialchars($f) . '">';
+            if ($mtime > $newestCssMtime || empty($latestCss)) {
+                $latestCss = $f;
+                $newestCssMtime = $mtime;
+            }
         }
     }
 }
+
+// 3. Construct tag with anti-cache timestamp parameter
+$jsMtime = (!empty($latestJs) && file_exists($assetsDir . '/' . $latestJs)) ? filemtime($assetsDir . '/' . $latestJs) : time();
+$cssMtime = (!empty($latestCss) && file_exists($assetsDir . '/' . $latestCss)) ? filemtime($assetsDir . '/' . $latestCss) : time();
+
+$jsScriptTag = !empty($latestJs) 
+    ? '<script type="module" crossorigin src="./assets/' . htmlspecialchars($latestJs) . '?v=' . $jsMtime . '"></script>' 
+    : '<script type="module" crossorigin src="./assets/index.js?v=' . time() . '"></script>';
+
+$cssLinkTag = !empty($latestCss) 
+    ? '<link rel="stylesheet" crossorigin href="./assets/' . htmlspecialchars($latestCss) . '?v=' . $cssMtime . '">' 
+    : '';
 
 $pageTitle = "SIMPRESENSI Madrasah - " . htmlspecialchars($schoolName);
 $pageDesc = "Sistem Presensi Fingerprint & Rekapitulasi Laporan GTK " . htmlspecialchars($schoolName) . " Terintegrasi Kemenag";
