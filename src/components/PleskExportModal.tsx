@@ -15,7 +15,9 @@ import {
   HelpCircle,
   RefreshCw,
   Zap,
-  Globe
+  Globe,
+  Code2,
+  BookOpen
 } from 'lucide-react';
 import { MadrasahProfile, WorkSchedule, Teacher, AttendanceRecord, LeaveRequest, HolidayItem } from '../types';
 import { 
@@ -23,7 +25,8 @@ import {
   generatePHPBackend, 
   generateHtaccess, 
   generateReadme, 
-  generatePleskHtmlGuide 
+  generatePleskHtmlGuide,
+  createPleskZip
 } from '../utils/pleskPackageGenerator';
 import {
   generateMySQLDumpForCpanel,
@@ -32,6 +35,7 @@ import {
   generateHtaccessForCpanel,
   generateReadmeCpanel,
   generateCpanelHtmlGuide,
+  createCpanelZip,
   CPANEL_DEFAULT_DB,
 } from '../utils/cpanelPackageGenerator';
 
@@ -301,7 +305,29 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
       });
 
       if (response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('text/html') || contentType.includes('application/json')) {
+          const text = await response.text();
+          let errText = "Server merespons dalam format teks/HTML (bukan berkas ZIP).";
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed.error) errText = parsed.error;
+          } catch(e) {}
+          throw new Error(errText);
+        }
+
         const blob = await response.blob();
+        if (blob.size < 100) {
+          throw new Error("Arsip ZIP kosong atau rusak.");
+        }
+
+        // Verify ZIP magic header PK (0x50 0x4B)
+        const headerSlice = await blob.slice(0, 4).arrayBuffer();
+        const header = new Uint8Array(headerSlice);
+        if (header[0] !== 0x50 || header[1] !== 0x4B) {
+          throw new Error("Berkas yang diterima bukan berkas ZIP yang valid.");
+        }
+
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -316,24 +342,58 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
         }, 1000);
         setDownloadSuccess(true);
       } else {
-        throw new Error(`Server returned HTTP ${response.status}`);
+        const text = await response.text();
+        let errMsg = `Server HTTP error ${response.status}`;
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed.error) errMsg = parsed.error;
+        } catch(e) {}
+        throw new Error(errMsg);
       }
     } catch (err: any) {
-      console.warn("POST fetch download fallback:", err);
+      console.warn("Direct server ZIP download failed or returned non-ZIP, using client-side JSZip engine:", err);
       try {
-        const directUrl = `${endpoint}?t=${Date.now()}`;
+        let zipBlob: Blob;
+        if (isCpanel) {
+          zipBlob = await createCpanelZip({
+            dbUser: CPANEL_DEFAULT_DB.user,
+            dbName: CPANEL_DEFAULT_DB.name,
+            dbPass: CPANEL_DEFAULT_DB.pass,
+            dbHost: CPANEL_DEFAULT_DB.host,
+            profile,
+            teachers,
+            attendanceRecords,
+            leaveRequests,
+            holidays,
+            schedule,
+          });
+        } else {
+          zipBlob = await createPleskZip({
+            profile,
+            teachers,
+            attendanceRecords,
+            leaveRequests,
+            holidays,
+            schedule,
+          });
+        }
+
+        const url = window.URL.createObjectURL(zipBlob);
         const a = document.createElement('a');
-        a.href = directUrl;
+        a.href = url;
         a.download = defaultFilename;
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
-          try { document.body.removeChild(a); } catch(e){}
+          try {
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+          } catch (e) {}
         }, 1000);
         setDownloadSuccess(true);
-      } catch (fallbackErr: any) {
-        console.error("Direct download fallback failed:", fallbackErr);
-        alert("Gagal mengunduh file ZIP: " + (fallbackErr?.message || err?.message));
+      } catch (clientErr: any) {
+        console.error("Client ZIP generator also failed:", clientErr);
+        alert("Gagal mengunduh berkas ZIP: " + (clientErr?.message || err?.message));
       }
     } finally {
       setIsGenerating(false);
@@ -351,22 +411,22 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
       >
         
         {/* Header */}
-        <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border-b border-emerald-500/30 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-600/25 border border-emerald-500/50 flex items-center justify-center text-emerald-400 shrink-0">
-              <Server className="w-5 h-5" />
+        <div className="shrink-0 px-4 sm:px-6 py-3 sm:py-3.5 bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border-b border-emerald-500/30 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-600/25 border border-emerald-500/50 flex items-center justify-center text-emerald-400 shrink-0">
+              <Server className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center space-x-2">
-                <h2 className="text-sm sm:text-base font-bold text-white tracking-wide">
+                <h2 className="text-xs sm:text-base font-bold text-white tracking-wide truncate">
                   Paket Hosting cPanel & Database MySQL
                 </h2>
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                <span className="hidden xs:inline-block px-2 py-0.5 text-[9px] sm:text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
                   AUTO-SYNC MYSQL
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
-                Ekspor ZIP siap deploy dan sinkronisasi otomatis database <strong className="text-emerald-300 font-mono">masbagoes_absensi</strong>.
+              <p className="text-[11px] sm:text-xs text-slate-400 truncate">
+                Ekspor ZIP siap deploy & sinkronisasi database <strong className="text-emerald-300 font-mono">masbagoes_absensi</strong>.
               </p>
             </div>
           </div>
@@ -374,114 +434,144 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
           <button
             onClick={onClose}
             aria-label="Tutup Dialog"
-            className="p-2 sm:p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
+            className="p-2 sm:p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center shrink-0 ml-2"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Platform Selector Bar: cPanel (Primary) vs Plesk */}
-        <div className="px-5 sm:px-6 py-2.5 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-slate-400 mr-1 font-medium">Target Platform:</span>
-            <button
-              onClick={() => setPlatform('CPANEL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                platform === 'CPANEL'
-                  ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400'
-                  : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5" />
-              <span>cPanel Hosting (masbagoes_absensi)</span>
-            </button>
+        <div className="shrink-0 px-3 sm:px-6 py-2 bg-slate-950 border-b border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <span className="text-xs text-slate-400 font-semibold shrink-0">Platform:</span>
+            <div className="grid grid-cols-2 gap-1.5 flex-1 sm:flex-initial">
+              <button
+                onClick={() => setPlatform('CPANEL')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  platform === 'CPANEL'
+                    ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400'
+                    : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-slate-800'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">cPanel (masbagoes)</span>
+              </button>
 
-            <button
-              onClick={() => setPlatform('PLESK')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
-                platform === 'PLESK'
-                  ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-400'
-                  : 'bg-slate-800/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Server className="w-3.5 h-3.5" />
-              <span>Plesk Hosting (jaenal_absensi)</span>
-            </button>
+              <button
+                onClick={() => setPlatform('PLESK')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  platform === 'PLESK'
+                    ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-400'
+                    : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-slate-800'
+                }`}
+              >
+                <Server className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Plesk (jaenal)</span>
+              </button>
+            </div>
           </div>
 
           {/* Realtime Auto-Sync Badge */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between sm:justify-end gap-2">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-[11px] text-emerald-300">
-              <span className="relative flex h-2 w-2">
+              <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span>Auto-Sync MySQL Aktif</span>
+              <span className="text-[10px] sm:text-[11px] font-medium">Auto-Sync MySQL Aktif</span>
             </div>
           </div>
         </div>
 
-        {/* Sub Navigation */}
-        <div className="px-5 sm:px-6 bg-slate-950/80 border-b border-slate-800 flex space-x-2 overflow-x-auto text-xs font-semibold">
-          <button
-            onClick={() => setActiveTab('OVERVIEW')}
-            className={`py-2.5 px-3 border-b-2 transition flex items-center space-x-1.5 ${
-              activeTab === 'OVERVIEW'
-                ? 'border-emerald-400 text-emerald-300 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Database className="w-4 h-4" />
-            <span>Kredensial & Auto-Sync</span>
-          </button>
+        {/* Sub Navigation: Menu Ikonik Responsif (5 Menu Selalu Terbuka & Dapat Diakses di Android) */}
+        <div className="shrink-0 px-2 sm:px-6 py-2 bg-slate-950/90 border-b border-slate-800">
+          <div className="grid grid-cols-5 gap-1 sm:gap-2 select-none">
+            
+            {/* Tab 1: Kredensial & Sync */}
+            <button
+              onClick={() => setActiveTab('OVERVIEW')}
+              className={`min-h-[46px] sm:min-h-[50px] py-1.5 px-1 sm:px-2.5 rounded-xl transition-all duration-200 flex flex-col items-center justify-center text-center cursor-pointer border ${
+                activeTab === 'OVERVIEW'
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-md ring-1 ring-emerald-400/40'
+                  : 'bg-slate-900/80 border-slate-800/90 text-slate-400 hover:text-slate-200 hover:bg-slate-850 hover:border-slate-700'
+              }`}
+              title="Akun Kredensial & Sinkronisasi Realtime MySQL"
+            >
+              <Database className={`w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 ${activeTab === 'OVERVIEW' ? 'text-emerald-400' : 'text-slate-400'}`} />
+              <span className="text-[10px] sm:text-xs font-bold leading-tight mt-1 truncate max-w-full">
+                <span className="sm:hidden">Kredensial</span>
+                <span className="hidden sm:inline">Kredensial & Sync</span>
+              </span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('SQL')}
-            className={`py-2.5 px-3 border-b-2 transition flex items-center space-x-1.5 ${
-              activeTab === 'SQL'
-                ? 'border-emerald-400 text-emerald-300 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileCode className="w-4 h-4" />
-            <span>database.sql</span>
-          </button>
+            {/* Tab 2: database.sql */}
+            <button
+              onClick={() => setActiveTab('SQL')}
+              className={`min-h-[46px] sm:min-h-[50px] py-1.5 px-1 sm:px-2.5 rounded-xl transition-all duration-200 flex flex-col items-center justify-center text-center cursor-pointer border ${
+                activeTab === 'SQL'
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-md ring-1 ring-emerald-400/40'
+                  : 'bg-slate-900/80 border-slate-800/90 text-slate-400 hover:text-slate-200 hover:bg-slate-850 hover:border-slate-700'
+              }`}
+              title="Skrip Skema & Data database.sql"
+            >
+              <FileCode className={`w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 ${activeTab === 'SQL' ? 'text-emerald-400' : 'text-slate-400'}`} />
+              <span className="text-[10px] sm:text-xs font-bold leading-tight mt-1 truncate max-w-full">
+                <span className="sm:hidden">SQL Dump</span>
+                <span className="hidden sm:inline">database.sql</span>
+              </span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('PHP')}
-            className={`py-2.5 px-3 border-b-2 transition flex items-center space-x-1.5 ${
-              activeTab === 'PHP'
-                ? 'border-emerald-400 text-emerald-300 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileCode className="w-4 h-4" />
-            <span>api.php & config.php</span>
-          </button>
+            {/* Tab 3: api.php & config.php */}
+            <button
+              onClick={() => setActiveTab('PHP')}
+              className={`min-h-[46px] sm:min-h-[50px] py-1.5 px-1 sm:px-2.5 rounded-xl transition-all duration-200 flex flex-col items-center justify-center text-center cursor-pointer border ${
+                activeTab === 'PHP'
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-md ring-1 ring-emerald-400/40'
+                  : 'bg-slate-900/80 border-slate-800/90 text-slate-400 hover:text-slate-200 hover:bg-slate-850 hover:border-slate-700'
+              }`}
+              title="Backend REST API (api.php & config.php)"
+            >
+              <Code2 className={`w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 ${activeTab === 'PHP' ? 'text-emerald-400' : 'text-slate-400'}`} />
+              <span className="text-[10px] sm:text-xs font-bold leading-tight mt-1 truncate max-w-full">
+                <span className="sm:hidden">PHP API</span>
+                <span className="hidden sm:inline">api.php & config</span>
+              </span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('HTACCESS')}
-            className={`py-2.5 px-3 border-b-2 transition flex items-center space-x-1.5 ${
-              activeTab === 'HTACCESS'
-                ? 'border-emerald-400 text-emerald-300 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileCode className="w-4 h-4" />
-            <span>.htaccess</span>
-          </button>
+            {/* Tab 4: .htaccess */}
+            <button
+              onClick={() => setActiveTab('HTACCESS')}
+              className={`min-h-[46px] sm:min-h-[50px] py-1.5 px-1 sm:px-2.5 rounded-xl transition-all duration-200 flex flex-col items-center justify-center text-center cursor-pointer border ${
+                activeTab === 'HTACCESS'
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-md ring-1 ring-emerald-400/40'
+                  : 'bg-slate-900/80 border-slate-800/90 text-slate-400 hover:text-slate-200 hover:bg-slate-850 hover:border-slate-700'
+              }`}
+              title="Konfigurasi Routing Server Apache .htaccess"
+            >
+              <FileText className={`w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 ${activeTab === 'HTACCESS' ? 'text-emerald-400' : 'text-slate-400'}`} />
+              <span className="text-[10px] sm:text-xs font-bold leading-tight mt-1 truncate max-w-full">
+                .htaccess
+              </span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('GUIDE')}
-            className={`py-2.5 px-3 border-b-2 transition flex items-center space-x-1.5 ${
-              activeTab === 'GUIDE'
-                ? 'border-emerald-400 text-emerald-300 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <HelpCircle className="w-4 h-4" />
-            <span>Panduan Instalasi</span>
-          </button>
+            {/* Tab 5: Panduan Instalasi */}
+            <button
+              onClick={() => setActiveTab('GUIDE')}
+              className={`min-h-[46px] sm:min-h-[50px] py-1.5 px-1 sm:px-2.5 rounded-xl transition-all duration-200 flex flex-col items-center justify-center text-center cursor-pointer border ${
+                activeTab === 'GUIDE'
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-md ring-1 ring-emerald-400/40'
+                  : 'bg-slate-900/80 border-slate-800/90 text-slate-400 hover:text-slate-200 hover:bg-slate-850 hover:border-slate-700'
+              }`}
+              title="Petunjuk & Panduan Lengkap Instalasi Hosting"
+            >
+              <BookOpen className={`w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 ${activeTab === 'GUIDE' ? 'text-emerald-400' : 'text-slate-400'}`} />
+              <span className="text-[10px] sm:text-xs font-bold leading-tight mt-1 truncate max-w-full">
+                <span className="sm:hidden">Panduan</span>
+                <span className="hidden sm:inline">Panduan Instalasi</span>
+              </span>
+            </button>
+
+          </div>
         </div>
 
         {/* Content Body */}
@@ -833,7 +923,7 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 sm:px-6 py-3.5 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+        <div className="shrink-0 px-4 sm:px-6 py-3 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
           <div className="flex items-center space-x-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="font-mono text-[11px]">

@@ -870,6 +870,7 @@ export function generateIndexPhp(options: PleskExportOptions): string {
 // ============================================================
 // SIMPRESENSI MADRASAH - DYNAMIC SSR OPEN GRAPH & ENTRY POINT
 // ============================================================
+header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 header('Pragma: no-cache');
 header('Expires: 0');
@@ -887,18 +888,35 @@ $currentUrl = $baseUrl . ($_SERVER['REQUEST_URI'] ?? '');
 $schoolName = "${schoolName.replace(/"/g, '\\"')}";
 $cacheBuster = time();
 
-// Fetch latest profile from MySQL
+// Fetch latest profile from MySQL (Silent PDO connection - do NOT include api.php to prevent JSON output)
 try {
-    require_once __DIR__ . '/api.php';
-    if (isset($pdo)) {
-        $stmt = $pdo->query("SELECT * FROM madrasah_profile LIMIT 1");
-        $row = $stmt->fetch();
-        if ($row && !empty($row['name'])) {
-            $schoolName = $row['name'];
+    $pdo = new PDO("mysql:host=localhost;dbname=jaenal_absensi;charset=utf8mb4", "jaenal_absensi", "masbagus15", [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_SILENT,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_TIMEOUT => 2,
+    ]);
+    $stmt = $pdo->query("SELECT * FROM madrasah_profile LIMIT 1");
+    $row = $stmt ? $stmt->fetch() : null;
+    if ($row && !empty($row['name'])) {
+        $schoolName = $row['name'];
+    }
+} catch (Throwable $e) {
+    // Abaikan jika database belum siap, fallback aman ke nama madrasah default
+}
+
+// Dynamically locate compiled JS and CSS in ./assets/
+$jsScriptTag = '';
+$cssLinkTag = '';
+$assetsDir = __DIR__ . '/assets';
+if (is_dir($assetsDir)) {
+    $files = scandir($assetsDir);
+    foreach ($files as $f) {
+        if (preg_match('/^index-.*\\.js$/', $f)) {
+            $jsScriptTag = '<script type="module" crossorigin src="./assets/' . htmlspecialchars($f) . '"></script>';
+        } else if (preg_match('/^index-.*\\.css$/', $f)) {
+            $cssLinkTag = '<link rel="stylesheet" crossorigin href="./assets/' . htmlspecialchars($f) . '">';
         }
     }
-} catch (Exception $e) {
-    // fallback to default
 }
 
 $pageTitle = "SIMPRESENSI Madrasah - " . htmlspecialchars($schoolName);
@@ -911,7 +929,7 @@ $faviconUrl = $baseUrl . "/api/favicon?t=" . $cacheBuster;
 <html lang="id" prefix="og: https://ogp.me/ns#">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="alternate icon" type="image/png" href="<?php echo $faviconUrl; ?>" />
     <link rel="apple-touch-icon" href="<?php echo $faviconUrl; ?>" />
     <link rel="image_src" href="<?php echo $ogImageUrl; ?>" />
@@ -938,10 +956,18 @@ $faviconUrl = $baseUrl . "/api/favicon?t=" . $cacheBuster;
     <meta name="twitter:description" content="<?php echo $pageDesc; ?>" />
     <meta name="twitter:image" content="<?php echo $ogImageUrl; ?>" />
     <meta name="twitter:image:alt" content="<?php echo htmlspecialchars($schoolName); ?>" />
+
+    <?php if (!empty($cssLinkTag)): ?>
+    <?php echo $cssLinkTag . "\n"; ?>
+    <?php endif; ?>
   </head>
   <body class="bg-zinc-100 text-zinc-900 antialiased min-h-screen">
     <div id="root"></div>
-    <script type="module" src="/assets/index.js"></script>
+    <?php if (!empty($jsScriptTag)): ?>
+    <?php echo $jsScriptTag . "\n"; ?>
+    <?php else: ?>
+    <script type="module" crossorigin src="./assets/index.js"></script>
+    <?php endif; ?>
   </body>
 </html>`;
 }
@@ -951,7 +977,7 @@ export function generateHtaccess(): string {
 # SIMPRESENSI MADRASAH - PLESK APACHE/NGINX REWRITE CONFIG
 # ============================================================
 
-# 1. Pastikan index.php diprioritaskan utama sebelum index.html
+# 1. Pastikan index.php dan index.html didukung
 DirectoryIndex index.php index.html
 
 <IfModule mod_rewrite.c>
@@ -962,9 +988,10 @@ DirectoryIndex index.php index.html
   RewriteRule ^(og-image\\.jpg|og-image\\.png|api/og-image)$ api.php?action=og_image [QSA,L]
   RewriteRule ^(favicon\\.ico|favicon\\.png|api/favicon)$ api.php?action=favicon [QSA,L]
 
-  # 3. Biarkan api.php & index.php berjalan langsung
+  # 3. Biarkan api.php, index.php, dan index.html berjalan langsung
   RewriteRule ^api\\.php$ - [L]
   RewriteRule ^index\\.php$ - [L]
+  RewriteRule ^index\\.html$ - [L]
 
   # 4. Routing API ke api.php untuk Plesk / Apache Server
   RewriteRule ^api/data/?$ api.php?action=get_initial_data [QSA,L]
@@ -977,14 +1004,17 @@ DirectoryIndex index.php index.html
   RewriteRule ^api/health/?$ api.php?action=test_db [QSA,L]
   RewriteRule ^api/save-record/?$ api.php?action=save_record [QSA,L]
   RewriteRule ^api/login/?$ api.php?action=login [QSA,L]
+  RewriteRule ^api/(.*)$ api.php?action=$1 [QSA,L]
 
   # 5. Jika file fisik aset statis ada (assets/, CSS, JS, fonts), sajikan langsung
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
-  # 6. Alihkan semua rute URL frontend ke index.php (Dynamic Open Graph + SPA)
+  # 6. Alihkan semua rute URL frontend ke index.php jika ada, fallback ke index.html
+  RewriteCond %{DOCUMENT_ROOT}/index.php -f
   RewriteRule ^ index.php [L]
+  RewriteRule ^ index.html [L]
 </IfModule>
 
 # Kompresi GZIP untuk Performa Cepat
@@ -1281,6 +1311,7 @@ export async function createPleskZip(options: PleskExportOptions): Promise<Blob>
   }
 
   zip.file('index.html', indexHtml);
+  zip.file('index.php', generateIndexPhp(options));
 
   // Generate zip binary
   const zipBlob = await zip.generateAsync({

@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import { execSync } from "child_process";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
@@ -11,7 +12,8 @@ import {
   generatePHPBackend, 
   generateHtaccess, 
   generateReadme, 
-  generatePleskHtmlGuide 
+  generatePleskHtmlGuide,
+  generateIndexPhp
 } from "./src/utils/pleskPackageGenerator";
 import {
   generateMySQLDumpForCpanel,
@@ -1222,6 +1224,24 @@ async function startServer() {
     }
   });
 
+  // Helper to ensure production Vite bundle exists before packaging ZIP
+  const ensureDistBuilt = () => {
+    const distPath = path.join(process.cwd(), "dist");
+    const assetsPath = path.join(distPath, "assets");
+    const hasAssets = fs.existsSync(assetsPath) && fs.readdirSync(assetsPath).some(f => f.endsWith(".js"));
+    const hasIndex = fs.existsSync(path.join(distPath, "index.html"));
+
+    if (!hasAssets || !hasIndex) {
+      console.log("[BUILD] dist assets missing or incomplete. Running vite build to create production bundle...");
+      try {
+        execSync("npx vite build", { stdio: "inherit" });
+        console.log("[BUILD] vite build completed successfully.");
+      } catch (e: any) {
+        console.error("[BUILD] Failed to run vite build:", e?.message);
+      }
+    }
+  };
+
   // Endpoint to download complete ready-to-use Plesk ZIP
   app.all("/api/download-plesk-zip", async (req, res) => {
     try {
@@ -1242,23 +1262,30 @@ async function startServer() {
       if (!htaccessContent) htaccessContent = generateHtaccess();
       if (!readmeContent) readmeContent = generateReadme(exportOptions);
       if (!htmlGuide) htmlGuide = generatePleskHtmlGuide();
+      const indexPhpContent = generateIndexPhp(exportOptions);
+
+      // Ensure dist/ production assets (JS bundle, CSS bundle) are compiled
+      ensureDistBuilt();
 
       const zip = new JSZip();
 
-      // 1. Add SQL Dump
+      // 1. Add SQL Dump for Plesk phpMyAdmin
       zip.file("database.sql", sqlContent);
 
       // 2. Add PHP API Backend
       zip.file("api.php", phpContent);
 
-      // 3. Add .htaccess
+      // 3. Add .htaccess (Apache Routing for Plesk)
       zip.file(".htaccess", htaccessContent);
 
-      // 4. Add Documentation
+      // 4. Add Dynamic PHP Entry Point (SSR Meta tags for Social Media / WhatsApp / Crawlers)
+      zip.file("index.php", indexPhpContent);
+
+      // 5. Add Documentation
       zip.file("README_PLESK.txt", readmeContent);
       zip.file("PANDUAN_INSTALASI_PLESK.html", htmlGuide);
 
-      // 5. Add built dist assets (index.html, assets/*.js, assets/*.css, images, favicons)
+      // 6. Add built dist assets (index.html, assets/*.js, assets/*.css, images, favicons)
       const distPath = path.join(process.cwd(), "dist");
       if (fs.existsSync(distPath)) {
         const addFolderToZip = (dirPath: string, zipFolder: JSZip) => {
@@ -1296,7 +1323,7 @@ async function startServer() {
         zip.file("index.html", renderExportHtml(pleskTemplate, "https://absensi.jaenalmaskun.biz.id"));
       }
 
-      // 6. Ensure public fallback assets are included if not in dist
+      // 7. Ensure public fallback assets are included if not in dist
       const publicPath = path.join(process.cwd(), "public");
       if (fs.existsSync(publicPath)) {
         const pubItems = fs.readdirSync(publicPath);
@@ -1356,6 +1383,9 @@ async function startServer() {
       if (!readmeContent) readmeContent = generateReadmeCpanel(exportOptions);
       if (!htmlGuide) htmlGuide = generateCpanelHtmlGuide(exportOptions);
 
+      // Ensure dist/ production assets (JS bundle, CSS bundle) are compiled
+      ensureDistBuilt();
+
       const zip = new JSZip();
 
       // 1. Add SQL Dump for cPanel phpMyAdmin Import
@@ -1385,13 +1415,28 @@ async function startServer() {
               if (subFolder) addFolderToZip(itemPath, subFolder);
             } else {
               if (!item.endsWith(".cjs") && !item.endsWith(".cjs.map")) {
-                const fileData = fs.readFileSync(itemPath);
-                zipFolder.file(item, fileData);
+                if (item === "index.html") {
+                  const rawHtml = fs.readFileSync(itemPath, "utf-8");
+                  zipFolder.file(item, renderExportHtml(rawHtml, "https://absensi.jaenalmaskun.biz.id"));
+                } else {
+                  const fileData = fs.readFileSync(itemPath);
+                  zipFolder.file(item, fileData);
+                }
               }
             }
           }
         };
         addFolderToZip(distPath, zip);
+      }
+
+      // Explicitly guarantee root index.html in cPanel ZIP has latest metadata
+      const cpanelDistIndex = path.join(distPath, "index.html");
+      const cpanelSrcIndex = path.join(process.cwd(), "index.html");
+      const cpanelTemplate = fs.existsSync(cpanelDistIndex)
+        ? fs.readFileSync(cpanelDistIndex, "utf-8")
+        : (fs.existsSync(cpanelSrcIndex) ? fs.readFileSync(cpanelSrcIndex, "utf-8") : "");
+      if (cpanelTemplate) {
+        zip.file("index.html", renderExportHtml(cpanelTemplate, "https://absensi.jaenalmaskun.biz.id"));
       }
 
       // 6. Ensure public fallback assets are included if not already in zip
