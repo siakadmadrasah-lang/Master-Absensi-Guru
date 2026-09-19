@@ -556,6 +556,104 @@ async function startServer() {
     return result;
   };
 
+  const renderExportHtml = (template: string, customDomain: string = "https://absensi.jaenalmaskun.biz.id") => {
+    const cleanDomain = customDomain.replace(/\/+$/, "");
+    const cacheBuster = Date.now();
+    const rawName = serverData.profile?.name || "GTK Madrasah";
+    const title = `SIMPRESENSI Madrasah - ${rawName}`;
+    const desc = `Aplikasi presensi fingerprint & rekapitulasi kehadiran Guru & Pegawai ${rawName} terintegrasi Kemenag & SPTJM.`;
+    const ogImageUrl = `${cleanDomain}/og-image.jpg?v=${cacheBuster}`;
+    const faviconUrl = `${cleanDomain}/favicon.svg?v=${cacheBuster}`;
+    const canonicalUrl = `${cleanDomain}/`;
+
+    let result = template;
+
+    // Replace or set <title>
+    if (result.includes("<title>")) {
+      result = result.replace(/<title>.*?<\/title>/gi, `<title>${escapeHtmlAttr(title)}</title>`);
+    } else {
+      result = result.replace(/<head>/i, `<head>\n    <title>${escapeHtmlAttr(title)}</title>`);
+    }
+
+    // Replace or set description
+    if (result.includes('name="description"') || result.includes("name='description'")) {
+      result = result.replace(/<meta\s+name=["']description["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta name="description" content="${escapeHtmlAttr(desc)}" />`);
+    } else {
+      result = result.replace(/<\/title>/i, `</title>\n    <meta name="description" content="${escapeHtmlAttr(desc)}" />`);
+    }
+
+    // Ensure og:site_name
+    if (result.includes('property="og:site_name"') || result.includes("property='og:site_name'")) {
+      result = result.replace(/<meta\s+property=["']og:site_name["']\s+content=["'].*?["']\s*\/?>/gi,
+        `<meta property="og:site_name" content="SIMPRESENSI GTK Madrasah" />`);
+    } else {
+      result = result.replace(/<head>/i, `<head>\n    <meta property="og:site_name" content="SIMPRESENSI GTK Madrasah" />`);
+    }
+
+    // Replace or set og:title
+    if (result.includes('property="og:title"') || result.includes("property='og:title'")) {
+      result = result.replace(/<meta\s+property=["']og:title["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta property="og:title" content="SIMPRESENSI Madrasah - Presensi Fingerprint &amp; Laporan GTK" />`);
+    } else {
+      result = result.replace(/<\/title>/i, `</title>\n    <meta property="og:title" content="SIMPRESENSI Madrasah - Presensi Fingerprint &amp; Laporan GTK" />`);
+    }
+
+    // Replace or set og:description
+    if (result.includes('property="og:description"') || result.includes("property='og:description'")) {
+      result = result.replace(/<meta\s+property=["']og:description["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta property="og:description" content="${escapeHtmlAttr(desc)}" />`);
+    } else {
+      result = result.replace(/<\/title>/i, `</title>\n    <meta property="og:description" content="${escapeHtmlAttr(desc)}" />`);
+    }
+
+    // Replace or set og:image and og:image:secure_url
+    if (result.includes('property="og:image"') || result.includes("property='og:image'")) {
+      result = result.replace(/<meta\s+property=["']og:image["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta property="og:image" content="${ogImageUrl}" />`);
+    } else {
+      result = result.replace(/<\/title>/i, `</title>\n    <meta property="og:image" content="${ogImageUrl}" />`);
+    }
+
+    if (result.includes('property="og:image:secure_url"') || result.includes("property='og:image:secure_url'")) {
+      result = result.replace(/<meta\s+property=["']og:image:secure_url["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta property="og:image:secure_url" content="${ogImageUrl}" />`);
+    } else {
+      result = result.replace(/<\/title>/i, `</title>\n    <meta property="og:image:secure_url" content="${ogImageUrl}" />`);
+    }
+
+    if (result.includes('rel="image_src"') || result.includes("rel='image_src'")) {
+      result = result.replace(/<link\s+rel=["']image_src["'].*?>/gi, 
+        `<link rel="image_src" href="${ogImageUrl}" />`);
+    } else {
+      result = result.replace(/<head>/i, `<head>\n    <link rel="image_src" href="${ogImageUrl}" />`);
+    }
+
+    // Replace Twitter meta
+    if (result.includes('name="twitter:title"') || result.includes("name='twitter:title'")) {
+      result = result.replace(/<meta\s+name=["']twitter:title["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta name="twitter:title" content="SIMPRESENSI Madrasah - Presensi Fingerprint &amp; Laporan GTK" />`);
+    }
+    if (result.includes('name="twitter:description"') || result.includes("name='twitter:description'")) {
+      result = result.replace(/<meta\s+name=["']twitter:description["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />`);
+    }
+    if (result.includes('name="twitter:image"') || result.includes("name='twitter:image'")) {
+      result = result.replace(/<meta\s+name=["']twitter:image["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta name="twitter:image" content="${ogImageUrl}" />`);
+    }
+
+    // Ensure og:url
+    if (result.includes('property="og:url"')) {
+      result = result.replace(/<meta\s+property=["']og:url["']\s+content=["'].*?["']\s*\/?>/gi, 
+        `<meta property="og:url" content="${canonicalUrl}" />`);
+    } else {
+      result = result.replace(/<\/head>/i, `    <meta property="og:url" content="${canonicalUrl}" />\n  </head>`);
+    }
+
+    return result;
+  };
+
   // API Routes
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", service: "simpresensi-madrasah", version: serverData.version });
@@ -1079,13 +1177,28 @@ async function startServer() {
             } else {
               // Exclude server.cjs from client zip since Plesk uses Apache/PHP
               if (!item.endsWith(".cjs") && !item.endsWith(".cjs.map")) {
-                const fileData = fs.readFileSync(itemPath);
-                zipFolder.file(item, fileData);
+                if (item === "index.html") {
+                  const rawHtml = fs.readFileSync(itemPath, "utf-8");
+                  zipFolder.file(item, renderExportHtml(rawHtml, "https://absensi.jaenalmaskun.biz.id"));
+                } else {
+                  const fileData = fs.readFileSync(itemPath);
+                  zipFolder.file(item, fileData);
+                }
               }
             }
           }
         };
         addFolderToZip(distPath, zip);
+      }
+
+      // Explicitly guarantee root index.html in Plesk ZIP has latest SIMPRESENSI metadata
+      const pleskDistIndex = path.join(distPath, "index.html");
+      const pleskSrcIndex = path.join(process.cwd(), "index.html");
+      const pleskTemplate = fs.existsSync(pleskDistIndex) 
+        ? fs.readFileSync(pleskDistIndex, "utf-8")
+        : (fs.existsSync(pleskSrcIndex) ? fs.readFileSync(pleskSrcIndex, "utf-8") : "");
+      if (pleskTemplate) {
+        zip.file("index.html", renderExportHtml(pleskTemplate, "https://absensi.jaenalmaskun.biz.id"));
       }
 
       // 6. Ensure public fallback assets are included if not in dist

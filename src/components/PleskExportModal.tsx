@@ -99,6 +99,13 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       fetchMysqlStatus();
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
     }
   }, [isOpen]);
 
@@ -334,13 +341,19 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm overflow-y-auto animate-fadeIn">
-      <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto animate-fadeIn"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-slate-900 border border-emerald-500/40 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] relative"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Header */}
-        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border-b border-emerald-500/30 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border-b border-emerald-500/30 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600/25 border border-emerald-500/50 flex items-center justify-center text-emerald-400">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-600/25 border border-emerald-500/50 flex items-center justify-center text-emerald-400 shrink-0">
               <Server className="w-5 h-5" />
             </div>
             <div>
@@ -360,7 +373,8 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+            aria-label="Tutup Dialog"
+            className="p-2 sm:p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>
@@ -831,7 +845,7 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
 
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-semibold transition cursor-pointer"
+            className="px-5 py-2 sm:py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-white rounded-xl font-semibold transition cursor-pointer text-xs sm:text-sm shadow-sm"
           >
             Tutup
           </button>

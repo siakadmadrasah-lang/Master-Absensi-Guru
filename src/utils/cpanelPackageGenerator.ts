@@ -718,9 +718,18 @@ Options +FollowSymLinks
   AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json image/svg+xml
 </IfModule>
 
-# 6. Browser Caching
+# 6. Browser Caching & No-Cache for HTML
+<IfModule mod_headers.c>
+  <FilesMatch "\.(html|htm)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+  </FilesMatch>
+</IfModule>
+
 <IfModule mod_expires.c>
   ExpiresActive On
+  ExpiresByType text/html "access plus 0 seconds"
   ExpiresByType image/jpg "access plus 1 month"
   ExpiresByType image/jpeg "access plus 1 month"
   ExpiresByType image/png "access plus 1 month"
@@ -878,6 +887,50 @@ export function generateCpanelHtmlGuide(_options?: any): string {
 `;
 }
 
+export function generateIndexHtmlForCpanel(options: CpanelExportOptions): string {
+  const madrasahName = options.profile?.name || "GTK Madrasah";
+  const nowTs = Date.now();
+  const domain = "https://absensi.jaenalmaskun.biz.id";
+  const ogImageUrl = `${domain}/og-image.jpg?v=${nowTs}`;
+
+  return `<!doctype html>
+<html lang="id" prefix="og: https://ogp.me/ns#">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="image_src" href="${ogImageUrl}" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SIMPRESENSI Madrasah - ${madrasahName}</title>
+    <meta name="description" content="Sistem Presensi Fingerprint &amp; Rekapitulasi Laporan Kehadiran GTK ${madrasahName} Terintegrasi Kemenag &amp; SPTJM" />
+    
+    <!-- Open Graph / WhatsApp / Telegram / Facebook Preview -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SIMPRESENSI GTK Madrasah" />
+    <meta property="og:title" content="SIMPRESENSI Madrasah - Presensi Fingerprint &amp; Laporan GTK" />
+    <meta property="og:description" content="Sistem Presensi Fingerprint &amp; Rekapitulasi Laporan Kehadiran GTK ${madrasahName} Terintegrasi Kemenag &amp; SPTJM" />
+    <meta property="og:image" content="${ogImageUrl}" />
+    <meta property="og:image:secure_url" content="${ogImageUrl}" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="SIMPRESENSI GTK Madrasah Banner" />
+    <meta property="og:url" content="${domain}/" />
+
+    <!-- Twitter Card Preview -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SIMPRESENSI Madrasah - Presensi Fingerprint &amp; Laporan GTK" />
+    <meta name="twitter:description" content="Sistem Presensi Fingerprint &amp; Rekapitulasi Laporan Kehadiran GTK ${madrasahName} Terintegrasi Kemenag &amp; SPTJM" />
+    <meta name="twitter:image" content="${ogImageUrl}" />
+  </head>
+  <body class="bg-zinc-100 text-zinc-900 antialiased min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="./assets/main.js"></script>
+  </body>
+</html>`;
+}
+
 export async function createCpanelZip(options: CpanelExportOptions): Promise<Blob> {
   const zip = new JSZip();
 
@@ -887,12 +940,14 @@ export async function createCpanelZip(options: CpanelExportOptions): Promise<Blo
   const htaccessContent = generateHtaccessForCpanel();
   const readmeContent = generateReadmeCpanel(options);
   const htmlGuide = generateCpanelHtmlGuide();
+  const indexHtml = generateIndexHtmlForCpanel(options);
 
   // Root files
   zip.file("database.sql", sqlContent);
   zip.file("api.php", phpContent);
   zip.file("config.php", configContent);
   zip.file(".htaccess", htaccessContent);
+  zip.file("index.html", indexHtml);
   zip.file("README_CPANEL.txt", readmeContent);
   zip.file("PANDUAN_INSTALASI_CPANEL.html", htmlGuide);
 
