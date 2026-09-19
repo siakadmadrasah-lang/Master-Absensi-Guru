@@ -825,20 +825,33 @@ export const PleskExportModal: React.FC<PleskExportModalProps> = ({
                   )}
                 </div>
 
-                <button
-                  onClick={handleDownloadZip}
-                  disabled={isGenerating}
-                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl font-bold flex items-center space-x-2 shadow-lg shadow-emerald-900/40 transition shrink-0 cursor-pointer"
-                >
-                  <Download className={`w-5 h-5 ${isGenerating ? 'animate-bounce' : ''}`} />
-                  <span>
-                    {isGenerating 
-                      ? 'Mengemas Berkas ZIP...' 
-                      : platform === 'CPANEL' 
-                        ? 'Download Paket ZIP cPanel' 
-                        : 'Download Paket ZIP Plesk'}
-                  </span>
-                </button>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+                  <button
+                    onClick={handleDownloadZip}
+                    disabled={isGenerating}
+                    className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl font-bold flex items-center justify-center space-x-2 shadow-lg shadow-emerald-900/40 transition shrink-0 cursor-pointer text-xs sm:text-sm"
+                  >
+                    <Download className={`w-4 h-4 ${isGenerating ? 'animate-bounce' : ''}`} />
+                    <span>
+                      {isGenerating 
+                        ? 'Mengemas Berkas ZIP...' 
+                        : platform === 'CPANEL' 
+                          ? 'Download Paket ZIP cPanel' 
+                          : 'Download Paket ZIP Plesk'}
+                    </span>
+                  </button>
+                  <a
+                    href={platform === 'CPANEL' ? '/api/download-cpanel-zip' : '/api/download-plesk-zip'}
+                    download={platform === 'CPANEL' 
+                      ? `SIMPRESENSI_cPanel_MySQL_${CPANEL_DEFAULT_DB.name}.zip` 
+                      : 'SIMPRESENSI_Plesk_MySQL_jaenal_absensi.zip'}
+                    className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 rounded-xl font-semibold flex items-center justify-center space-x-1.5 transition text-xs text-center shrink-0 cursor-pointer"
+                    title="Unduh langsung via native browser jika tombol unduh tertahan di Android"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Unduh Langsung</span>
+                  </a>
+                </div>
               </div>
             </div>
           )}

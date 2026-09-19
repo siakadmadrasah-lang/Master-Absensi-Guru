@@ -22,6 +22,7 @@ import {
   generateHtaccessForCpanel,
   generateReadmeCpanel,
   generateCpanelHtmlGuide,
+  generateIndexPhpForCpanel,
   CPANEL_DEFAULT_DB
 } from "./src/utils/cpanelPackageGenerator";
 
@@ -1224,15 +1225,42 @@ async function startServer() {
     }
   });
 
-  // Helper to ensure production Vite bundle exists before packaging ZIP
-  const ensureDistBuilt = () => {
+  // Helper to ensure production Vite bundle exists and is up-to-date before packaging ZIP
+  const ensureDistBuilt = (force: boolean = false) => {
     const distPath = path.join(process.cwd(), "dist");
     const assetsPath = path.join(distPath, "assets");
+    const distIndex = path.join(distPath, "index.html");
     const hasAssets = fs.existsSync(assetsPath) && fs.readdirSync(assetsPath).some(f => f.endsWith(".js"));
-    const hasIndex = fs.existsSync(path.join(distPath, "index.html"));
+    const hasIndex = fs.existsSync(distIndex);
 
-    if (!hasAssets || !hasIndex) {
-      console.log("[BUILD] dist assets missing or incomplete. Running vite build to create production bundle...");
+    let needsBuild = !hasAssets || !hasIndex || force;
+    if (!needsBuild && fs.existsSync(distIndex)) {
+      try {
+        const distMtime = fs.statSync(distIndex).mtimeMs;
+        const checkDirNewer = (dir: string): boolean => {
+          if (!fs.existsSync(dir)) return false;
+          const files = fs.readdirSync(dir);
+          for (const file of files) {
+            const full = path.join(dir, file);
+            const stat = fs.statSync(full);
+            if (stat.isDirectory()) {
+              if (checkDirNewer(full)) return true;
+            } else if (stat.mtimeMs > distMtime) {
+              return true;
+            }
+          }
+          return false;
+        };
+        if (checkDirNewer(path.join(process.cwd(), "src"))) {
+          needsBuild = true;
+        }
+      } catch (e) {
+        needsBuild = true;
+      }
+    }
+
+    if (needsBuild) {
+      console.log("[BUILD] Source files updated or dist incomplete. Running vite build...");
       try {
         execSync("npx vite build", { stdio: "inherit" });
         console.log("[BUILD] vite build completed successfully.");
@@ -1398,11 +1426,15 @@ async function startServer() {
       // 3. Add .htaccess (Apache Routing for cPanel)
       zip.file(".htaccess", htaccessContent);
 
-      // 4. Add Clear Step-by-Step Documentation & Guide
+      // 4. Add Dynamic PHP Entry Point (SSR Meta tags & dynamic assets loader for cPanel)
+      const indexPhpContent = generateIndexPhpForCpanel(exportOptions);
+      zip.file("index.php", indexPhpContent);
+
+      // 5. Add Clear Step-by-Step Documentation & Guide
       zip.file("README_CPANEL.txt", readmeContent);
       zip.file("PANDUAN_INSTALASI_CPANEL.html", htmlGuide);
 
-      // 5. Add built dist assets (index.html, assets/*.js, assets/*.css, images, favicons)
+      // 6. Add built dist assets (index.html, assets/*.js, assets/*.css, images, favicons)
       const distPath = path.join(process.cwd(), "dist");
       if (fs.existsSync(distPath)) {
         const addFolderToZip = (dirPath: string, zipFolder: JSZip) => {

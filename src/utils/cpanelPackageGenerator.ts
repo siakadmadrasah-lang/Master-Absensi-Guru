@@ -873,6 +873,122 @@ export function generateCpanelHtmlGuide(_options?: any): string {
 `;
 }
 
+export function generateIndexPhpForCpanel(options: CpanelExportOptions): string {
+  const schoolName = options.profile?.name || "MI MA'ARIF NU 02 SANGGREMAN";
+  const dbUser = options?.dbUser || CPANEL_DEFAULT_DB.user;
+  const dbName = options?.dbName || CPANEL_DEFAULT_DB.name;
+  const dbPass = options?.dbPass || CPANEL_DEFAULT_DB.pass;
+  const dbHost = options?.dbHost || CPANEL_DEFAULT_DB.host;
+
+  return `<?php
+// ============================================================
+// SIMPRESENSI MADRASAH - DYNAMIC SSR OPEN GRAPH & ENTRY POINT (cPanel MySQL)
+// ============================================================
+header('Content-Type: text/html; charset=utf-8');
+header('Cache-Control: no-cache, no-store, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
+
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443)
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+    || (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on');
+
+$protocol = $isHttps ? "https" : "http";
+$host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost';
+$baseUrl = $protocol . '://' . $host;
+$currentUrl = $baseUrl . ($_SERVER['REQUEST_URI'] ?? '');
+
+$schoolName = "${schoolName.replace(/"/g, '\\"')}";
+$cacheBuster = time();
+
+// Fetch latest profile from MySQL (cPanel ${dbName})
+try {
+    require_once __DIR__ . '/config.php';
+    $dsn = "mysql:host=" . (defined('DB_HOST') ? DB_HOST : '${dbHost}') . ";dbname=" . (defined('DB_NAME') ? DB_NAME : '${dbName}') . ";charset=utf8mb4";
+    $user = defined('DB_USER') ? DB_USER : '${dbUser}';
+    $pass = defined('DB_PASS') ? DB_PASS : '${dbPass}';
+    $pdo = new PDO($dsn, $user, $pass, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_SILENT,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_TIMEOUT => 2,
+    ]);
+    $stmt = $pdo->query("SELECT * FROM madrasah_profile LIMIT 1");
+    $row = $stmt ? $stmt->fetch() : null;
+    if ($row && !empty($row['name'])) {
+        $schoolName = $row['name'];
+    }
+} catch (Throwable $e) {
+    // Abaikan jika database belum siap, fallback aman ke nama madrasah default
+}
+
+// Dynamically locate compiled JS and CSS in ./assets/
+$jsScriptTag = '';
+$cssLinkTag = '';
+$assetsDir = __DIR__ . '/assets';
+if (is_dir($assetsDir)) {
+    $files = scandir($assetsDir);
+    foreach ($files as $f) {
+        if (preg_match('/^index-.*\\.js$/', $f)) {
+            $jsScriptTag = '<script type="module" crossorigin src="./assets/' . htmlspecialchars($f) . '"></script>';
+        } else if (preg_match('/^index-.*\\.css$/', $f)) {
+            $cssLinkTag = '<link rel="stylesheet" crossorigin href="./assets/' . htmlspecialchars($f) . '">';
+        }
+    }
+}
+
+$pageTitle = "SIMPRESENSI Madrasah - " . htmlspecialchars($schoolName);
+$pageDesc = "Sistem Presensi Fingerprint & Rekapitulasi Laporan GTK " . htmlspecialchars($schoolName) . " Terintegrasi Kemenag & SPTJM";
+$ogImageUrl = $baseUrl . "/og-image.jpg";
+$ogImageSecureUrl = "https://" . $host . "/og-image.jpg";
+$faviconUrl = $baseUrl . "/favicon.svg";
+?>
+<!doctype html>
+<html lang="id" prefix="og: https://ogp.me/ns#">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="alternate icon" type="image/png" href="<?php echo $faviconUrl; ?>" />
+    <link rel="apple-touch-icon" href="<?php echo $faviconUrl; ?>" />
+    <link rel="image_src" href="<?php echo $ogImageUrl; ?>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><?php echo $pageTitle; ?></title>
+    <meta name="description" content="<?php echo $pageDesc; ?>" />
+    
+    <!-- Open Graph / WhatsApp / Facebook / Telegram Crawler Meta Tags -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SIMPRESENSI GTK Madrasah" />
+    <meta property="og:title" content="<?php echo $pageTitle; ?>" />
+    <meta property="og:description" content="<?php echo $pageDesc; ?>" />
+    <meta property="og:image" content="<?php echo $ogImageUrl; ?>" />
+    <meta property="og:image:secure_url" content="<?php echo $ogImageSecureUrl; ?>" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="<?php echo htmlspecialchars($schoolName); ?>" />
+
+    <!-- Twitter Card Preview -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="<?php echo $pageTitle; ?>" />
+    <meta name="twitter:description" content="<?php echo $pageDesc; ?>" />
+    <meta name="twitter:image" content="<?php echo $ogImageUrl; ?>" />
+    <meta name="twitter:image:alt" content="<?php echo htmlspecialchars($schoolName); ?>" />
+
+    <?php if (!empty($cssLinkTag)): ?>
+    <?php echo $cssLinkTag . "\n"; ?>
+    <?php endif; ?>
+  </head>
+  <body class="bg-zinc-100 text-zinc-900 antialiased min-h-screen">
+    <div id="root"></div>
+    <?php if (!empty($jsScriptTag)): ?>
+    <?php echo $jsScriptTag . "\n"; ?>
+    <?php else: ?>
+    <script type="module" crossorigin src="./assets/index.js"></script>
+    <?php endif; ?>
+  </body>
+</html>`;
+}
+
 export function generateIndexHtmlForCpanel(options: CpanelExportOptions): string {
   const madrasahName = options.profile?.name || "GTK Madrasah";
   const nowTs = Date.now();
@@ -883,9 +999,9 @@ export function generateIndexHtmlForCpanel(options: CpanelExportOptions): string
 <html lang="id" prefix="og: https://ogp.me/ns#">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="alternate icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="alternate icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
     <link rel="image_src" href="${ogImageUrl}" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SIMPRESENSI Madrasah - ${madrasahName}</title>
@@ -912,7 +1028,7 @@ export function generateIndexHtmlForCpanel(options: CpanelExportOptions): string
   </head>
   <body class="bg-zinc-100 text-zinc-900 antialiased min-h-screen">
     <div id="root"></div>
-    <script type="module" src="./assets/main.js"></script>
+    <script type="module" crossorigin src="./assets/index.js"></script>
   </body>
 </html>`;
 }
@@ -925,8 +1041,9 @@ export async function createCpanelZip(options: CpanelExportOptions): Promise<Blo
   const configContent = generateDbConfigFileForCpanel(options);
   const htaccessContent = generateHtaccessForCpanel();
   const readmeContent = generateReadmeCpanel(options);
-  const htmlGuide = generateCpanelHtmlGuide();
+  const htmlGuide = generateCpanelHtmlGuide(options);
   const indexHtml = generateIndexHtmlForCpanel(options);
+  const indexPhp = generateIndexPhpForCpanel(options);
 
   // Root files
   zip.file("database.sql", sqlContent);
@@ -934,8 +1051,37 @@ export async function createCpanelZip(options: CpanelExportOptions): Promise<Blo
   zip.file("config.php", configContent);
   zip.file(".htaccess", htaccessContent);
   zip.file("index.html", indexHtml);
+  zip.file("index.php", indexPhp);
   zip.file("README_CPANEL.txt", readmeContent);
   zip.file("PANDUAN_INSTALASI_CPANEL.html", htmlGuide);
+
+  // SVG Favicon
+  const circularFaviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="50%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#064e3b" />
+    </linearGradient>
+    <linearGradient id="goldRing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="50%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#bgGrad)" />
+  <circle cx="32" cy="32" r="28.5" fill="none" stroke="url(#goldRing)" stroke-width="1.8" />
+  <circle cx="32" cy="32" r="26" fill="none" stroke="#065f46" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.6" />
+  <g fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 37 C21 24, 43 24, 43 37" />
+    <path d="M26 38 C26 28, 38 28, 38 38" />
+    <path d="M30 40 C30 33, 34 33, 34 40" />
+    <path d="M19 41 C19 47, 26 50, 32 50 C38 50, 45 47, 45 41" />
+    <path d="M23 44 C27 47.5, 37 47.5, 41 44" />
+  </g>
+  <path d="M32 13 L33.2 16.8 L37 16.8 L34 19 L35.1 22.8 L32 20.5 L28.9 22.8 L30 19 L27 16.8 L30.8 16.8 Z" fill="#fbbf24" />
+</svg>`;
+  zip.file('favicon.svg', circularFaviconSvg);
 
   return await zip.generateAsync({ type: "blob" });
 }
